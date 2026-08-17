@@ -10,7 +10,6 @@ from aimusic.core.core_types import BeatState
 from aimusic.core.vocab import build_default_vocabularies
 from aimusic.planning.plans import PlanningSection
 from aimusic.scoring.tension import (
-    DEFAULT_WEIGHTS,
     TENSION_MODEL_VERSION,
     TensionWeights,
     beat_tension,
