@@ -20,16 +20,14 @@ from aimusic.core.config import (
 from aimusic.core.core_types import Score, ScoreValidationError
 from aimusic.core.vocab import DEFAULT_GROOVE_FAMILIES, DEFAULT_METER_SIGNATURES
 from aimusic.decode import decode_path_to_score
-from aimusic.planning.plans import MethodARunConfig, run_method_a
+from aimusic.planning.plans import MethodARunConfig, PlanningSection, run_method_a
 from aimusic.render import TrackInstrumentConfig, render_midi
+from aimusic.scoring.tension import (
+    compare_tension_curves,
+    realized_tension_curve,
+    target_tension_curve,
+)
 from aimusic.theory.edo import EDO
-
-ROLE_TENSION = {
-    "hold": 0.20,
-    "prep": 0.45,
-    "change": 0.65,
-    "cad": 0.90,
-}
 
 
 def _json_ready(value: Any) -> Any:
@@ -63,24 +61,27 @@ def _segment_timeline(values: Iterable[str]) -> list[TimelineEvent]:
     return events
 
 
-def _build_structural_diagnostics(path: tuple[Any, ...], vocabularies: Any) -> StructuralDiagnostics:
+def _build_structural_diagnostics(
+    path: tuple[Any, ...],
+    vocabularies: Any,
+    edo: int,
+    sections: tuple[PlanningSection, ...] = (),
+) -> StructuralDiagnostics:
     decoded_states = path[:-1] if len(path) > 1 else path
     key_labels = [vocabularies.keys.token_for_id(state.key_id).label for state in decoded_states]
     chord_labels = [vocabularies.chords.token_for_id(state.chord_id).label for state in decoded_states]
     role_labels = [vocabularies.roles.token_for_id(state.role_id).label for state in decoded_states]
     groove_labels = [vocabularies.grooves.token_for_id(state.groove_id).label for state in decoded_states]
     boundaries = [float(index) for index, state in enumerate(decoded_states) if state.boundary_lvl > 0]
-    tension_curve = [
-        (
-            float(index),
-            min(
-                1.0,
-                ROLE_TENSION[vocabularies.roles.token_for_id(state.role_id).label]
-                + (0.05 * state.boundary_lvl),
-            ),
-        )
-        for index, state in enumerate(decoded_states)
-    ]
+
+    tension_curve = realized_tension_curve(decoded_states, vocabularies, edo)
+    tension_target_curve = target_tension_curve(sections) if sections else []
+    deviation = (
+        compare_tension_curves(tension_target_curve, tension_curve, sections)
+        if tension_target_curve
+        else None
+    )
+
     return StructuralDiagnostics(
         key_timeline=_segment_timeline(key_labels),
         chord_timeline=_segment_timeline(chord_labels),
@@ -88,6 +89,8 @@ def _build_structural_diagnostics(path: tuple[Any, ...], vocabularies: Any) -> S
         groove_timeline=_segment_timeline(groove_labels),
         boundaries=boundaries,
         tension_curve=tension_curve,
+        target_tension_curve=tension_target_curve,
+        tension_deviation=dataclasses.asdict(deviation) if deviation is not None else {},
     )
 
 
@@ -171,7 +174,12 @@ def handle_generate(args: argparse.Namespace) -> None:
         edo=args.edo,
         tempo_bpm=args.tempo_bpm,
     )
-    structural_stats = _build_structural_diagnostics(plan_result.path, plan_result.vocabularies)
+    structural_stats = _build_structural_diagnostics(
+        plan_result.path,
+        plan_result.vocabularies,
+        edo=args.edo,
+        sections=plan_result.endpoints.sections,
+    )
     manifest = RunManifest(
         seed=args.seed,
         config_dump=_json_ready(
