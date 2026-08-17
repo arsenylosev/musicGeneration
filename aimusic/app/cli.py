@@ -291,10 +291,60 @@ def handle_inspect(args: argparse.Namespace) -> None:
     else:
         print("  (none)")
 
-    print("\n--- Tension Arc ---")
-    for time_val, tension in structure.get("tension_curve", []):
+    realized = structure.get("tension_curve", [])
+    target = structure.get("target_tension_curve", [])
+
+    print("\n--- Tension Arc (realized) ---")
+    for time_val, tension in realized:
         bar = "#" * int(tension * 20)
         print(f"Beat {time_val:04.1f}: {bar} ({tension:.3f})")
+
+    if target:
+        print("\n--- Target vs Realized Tension ---")
+        target_by_time = {t: v for t, v in target}
+        for time_val, r_tension in realized:
+            t_tension = target_by_time.get(time_val)
+            r_bar = "#" * int(r_tension * 20)
+            if t_tension is None:
+                print(f"  t={time_val:04.1f}  realized {r_bar:<20} ({r_tension:.3f})  target n/a")
+                continue
+            t_bar = "*" * int(t_tension * 20)
+            delta = r_tension - t_tension
+            sign = "+" if delta >= 0 else "-"
+            print(
+                f"  t={time_val:04.1f}  "
+                f"target   {t_bar:<20} ({t_tension:.3f})  |  "
+                f"realized {r_bar:<20} ({r_tension:.3f})  "
+                f"[{sign}{abs(delta):.3f}]"
+            )
+
+    deviation = structure.get("tension_deviation", {})
+    if deviation:
+        print("\n--- Tension Deviation Report ---")
+        mae = deviation.get("mean_absolute_error")
+        max_err = deviation.get("max_absolute_error")
+        peak_off = deviation.get("peak_timing_offset")
+        shape_corr = deviation.get("shape_correlation")
+        print(f"Mean absolute error:  {mae:.4f}" if isinstance(mae, (int, float)) else f"Mean absolute error:  {mae}")
+        print(f"Max absolute error:   {max_err:.4f}" if isinstance(max_err, (int, float)) else f"Max absolute error:   {max_err}")
+        print(f"Target peak time:     {deviation.get('target_peak_time')}")
+        print(f"Realized peak time:   {deviation.get('realized_peak_time')}")
+        print(
+            f"Peak timing offset:   {peak_off:+.2f} beats (realized - target)"
+            if isinstance(peak_off, (int, float))
+            else f"Peak timing offset:   {peak_off}"
+        )
+        print(
+            f"Shape correlation:    {shape_corr:.4f} (Pearson, -1..1)"
+            if isinstance(shape_corr, (int, float))
+            else f"Shape correlation:    {shape_corr}"
+        )
+        section_errors = deviation.get("section_errors", {})
+        if section_errors:
+            print("Section-level MAE:")
+            for name, err in section_errors.items():
+                print(f"  {name}: {err:.4f}" if isinstance(err, (int, float)) else f"  {name}: {err}")
+
     print("=========================================================\n")
 
 
