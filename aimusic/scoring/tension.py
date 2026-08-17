@@ -1,73 +1,10 @@
-"""tension.py — Documented, versioned tension model.
+""" tension.py — versioned tension model (TENSION_MODEL_VERSION = "1.0.0").
 
-Replaces three previously-duplicated, disconnected tension formulas
-(`aimusic.core.diagnostics.compute_tension_curve` [dead code, tested against
-a fictional role vocabulary], `aimusic.app.cli.ROLE_TENSION`, and the
-role+boundary-only heuristic that had crept into the CLI) with a single pure
-function that also accounts for tonal distance — key motion and chord
-motion — via `aimusic.theory.tonal.tonal_distance` / `basic_space_distance`.
-
-Relationship to `aimusic.scoring.gttm_features`
--------------------------------------------------------------------------
-`gttm_features.py` already has `harmonic_key_proximity_feature`,
-`harmonic_chord_proximity_feature`, and `cadential_harmonic_motion_feature`,
-built on the same `tonal_distance` / `basic_space_distance` primitives, over
-the same `(prev_state, next_state)` transition-pair convention used here.
-They are currently dead in the actual pipeline (only exercised by
-`tests/test_gttm_beatstate.py`; nothing outside that module imports them)
-just like the old `compute_tension_curve` was.
-
-This module deliberately does not import those feature functions. They are
-*proximity* scores intended for GTTM-style prior scoring: unbounded decay
-`1 / (1 + distance)`, not clamped, and returning negative sentinel values
-(-1.0, -0.5, -0.8...) when a token can't be resolved — semantics suited to
-scoring candidate transitions, not to a `[0, 1]` diagnostics tension value
-that gets serialized straight into a manifest. Reusing the private
-underscore-prefixed resolver helpers (`_key_token`, `_chord_token`,
-`_cached_basic_space_distance`, ...) across modules was also avoided since
-they aren't part of that module's public surface.
-
-What *is* reused is the same decay family: this module's key- and
-chord-motion components use `distance / (1 + distance)`, the same functional
-shape as `gttm_features`'s `1 / (1 + distance)`, just inverted (rises with
-distance instead of falling) and naturally bounded in `[0, 1)` without a
-hand-picked cap. See §4.3's worked example below and
-docs/tension-diagnostics-spec.md §3 for the explicit "why not reuse"
-rationale.
-
-`aimusic.decode._tension_level` is a *different* concern (it drives note
-velocity/expression during MIDI rendering) and is intentionally not unified
-with this module. See docs/tension-diagnostics-spec.md §2, §7.
-
-Per-transition, not per-state
--------------------------------------------------------------------------
-The previous formulas were per-state: `tension_curve[i]` was "tension of
-state i" from role/boundary alone. `beat_tension` is per-transition: it
-takes `(prev_state, state)` and returns the tension of transitioning *into*
-`state`. `realized_tension_curve(path)[i]` is therefore "tension of the
-transition into `path[i]`", informed by `(path[i-1], path[i])` — for `i=0`
-there is no incoming transition, so it falls back to role/boundary only
-(see `beat_tension`'s docstring). The time-indexing convention (index i ==
-beat i) is unchanged, so nothing downstream that only reads
-time/length/keys breaks, but the *meaning* of "tension at index i" has
-shifted from "of this beat" to "of arriving at this beat" — worth knowing
-if you're comparing curves across the old and new formulas by eye.
-
---------------------------------------------------------------------------
-Version history
---------------------------------------------------------------------------
-1.0.0 — initial versioned model. Combines role, boundary, key motion
-        (circle-of-fifths distance between consecutive key roots) and chord
-        motion (Lerdahl TPS distance between consecutive chords), with an
-        optional, off-by-default head/groove term. Key- and chord-motion
-        normalization uses `distance / (1 + distance)` (unbounded decay,
-        matching gttm_features' proximity-scoring convention) rather than a
-        hand-picked division cap, so it can't saturate to 1.0 early for
-        wide chord vocabularies (e.g. 7-tone extended chords) the way a
-        fixed divisor would.
---------------------------------------------------------------------------
+Replaces dead/duplicated role+boundary-only formulas with one pure function
+adding key/chord motion via tonal.py. Per-transition, not per-state: index i
+means "tension of arriving at path[i]". Doesn't reuse gttm_features.py's
+unbounded proximity scores (different semantics) though shares its decay shape.
 """
-
 from __future__ import annotations
 
 import statistics
@@ -197,9 +134,6 @@ def beat_tension(
     weights: TensionWeights = DEFAULT_WEIGHTS,
 ) -> float:
     """Compute tension in [0, 1] for `state`, given the beat that precedes it.
-
-    Pure function: no I/O, no mutation, no shared state. Same inputs always
-    produce the same output.
 
     Combines, as a weighted sum:
       - role component: authored harmonic function (hold < prep < change < cad)
