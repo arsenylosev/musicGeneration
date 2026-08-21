@@ -25,9 +25,10 @@ Land the RenderPackage contract and PDF-derived audio-pipeline documentation on
 
 ### Checkpoint: M0
 
-- [ ] Docs cover B1–B4, M0–M6, stages, contract
-- [ ] `generate` emits valid RenderPackage
-- [ ] Architecture + package tests pass; core CI green
+- [x] Docs cover B1–B4, M0–M6, stages, contract
+- [x] `generate` emits valid RenderPackage
+- [x] Architecture + package tests pass; core CI green
+- [x] Fork PR opened; CI green
 
 ## Risks and Mitigations
 

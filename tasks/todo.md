@@ -7,4 +7,4 @@
 - [x] Port `aimusic/core/render_package.py` + thin `aimusic/render/package.py`
 - [x] Wire `handle_generate` to emit RenderPackage (keep legacy flats)
 - [x] Add `tests/test_render_package.py`; run lint/typecheck/tests
-- [ ] Push branch; `gh pr create` → fork `main`; monitor CI
+- [x] Push branch; `gh pr create` → fork `main`; monitor CI (all green)
