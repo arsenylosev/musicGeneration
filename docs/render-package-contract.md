@@ -26,7 +26,9 @@ Key fields: `schema`, `provenance` (`planner` | `inferred` | `host`), `source_ha
 Default programs: bass 33, comping 4, lead 81, drums `null`.
 
 A track is `microtonal: true` when any pitch class is more than **8 cents** from
-the nearest 12-TET pitch (see `DECISIONS.md`).
+the nearest 12-TET pitch (see `DECISIONS.md`). Percussion tracks
+(`percussion: true`, e.g. drums / GM drum keys) are always `microtonal: false`
+— drum note numbers are sample indices, not EDO pitch heights.
 
 ## `tuning.json`
 

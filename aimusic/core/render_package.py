@@ -234,7 +234,12 @@ def build_structure(
         pitches = [e.h for e in events]
         role = name if name in DEFAULT_PROGRAMS else "lead"
         percussion = role == "drums" or programs.get(name) is None and name == "drums"
-        microtonal = _track_is_microtonal(events, edo, tolerance_cents=tolerance_cents)
+        # GM drum keys are sample indices, not EDO pitch heights.
+        microtonal = (
+            False
+            if percussion
+            else _track_is_microtonal(events, edo, tolerance_cents=tolerance_cents)
+        )
         tracks.append(
             {
                 "name": name,

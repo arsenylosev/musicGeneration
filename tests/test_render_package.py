@@ -82,6 +82,34 @@ class TestRenderPackage(unittest.TestCase):
         by_name = {t["name"]: t for t in structure.tracks}
         self.assertTrue(by_name["lead"]["microtonal"] or by_name["bass"]["microtonal"])
 
+    def test_structure_19edo_drums_never_microtonal(self) -> None:
+        """GM drum keys must not trip microtonal detection in non-12 EDO."""
+        events = (
+            NoteEvent(ton=0, toff=240, h=19, v=0.8, track="bass"),
+            NoteEvent(ton=0, toff=120, h=1, v=0.7, track="lead"),
+            NoteEvent(ton=0, toff=60, h=36, v=0.9, track="drums"),
+            NoteEvent(ton=60, toff=120, h=38, v=0.9, track="drums"),
+            NoteEvent(ton=120, toff=180, h=42, v=0.85, track="drums"),
+        )
+        score = Score(note_events=events, ticks_per_beat=480, tempo_bpm=120.0)
+        path = (
+            BeatState(
+                meter_id=0,
+                beat_in_bar=0,
+                boundary_lvl=2,
+                key_id=0,
+                chord_id=0,
+                role_id=0,
+                head_id=0,
+                groove_id=0,
+            ),
+        )
+        structure = build_structure(score, path, edo=19, base_tuning=0.0)
+        by_name = {t["name"]: t for t in structure.tracks}
+        self.assertTrue(by_name["drums"]["percussion"])
+        self.assertFalse(by_name["drums"]["microtonal"])
+        self.assertTrue(by_name["lead"]["microtonal"])
+
     def test_cli_generate_emits_render_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
