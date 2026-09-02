@@ -13,6 +13,7 @@ from aimusic.core.core_types import BeatState, NoteEvent, Score
 from aimusic.core.diagnostics import RunManifest
 from aimusic.render.package import (
     STRUCTURE_SCHEMA,
+    ContractViolation,
     assert_contract_invariants,
     build_structure,
     load_render_package,
@@ -73,8 +74,109 @@ class TestRenderPackage(unittest.TestCase):
             structure = json.loads(package.structure_path.read_text(encoding="utf-8"))
             self.assertEqual(structure["schema"], STRUCTURE_SCHEMA)
             self.assertEqual(structure["provenance"], "planner")
+            manifest = json.loads(package.manifest_path.read_text(encoding="utf-8"))
+            rp = manifest["render_package"]
+            self.assertIn("source_hash", rp)
+            self.assertIn("package_hash", rp)
+            self.assertEqual(rp["package_hash"], package.content_hash)
+            self.assertEqual(structure["source_hash"], f"sha256:{rp['source_hash']}")
             loaded = load_render_package(package.root)
             assert_contract_invariants(loaded, score=score)
+            self.assertEqual(loaded.content_hash, package.content_hash)
+
+    def test_package_hash_diverges_on_tuning_params(self) -> None:
+        score, path = _tiny_score()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            midi_path = tmp_path / "tmp.mid"
+            edo = EDO(EDOConfig(n=12, base_tuning=0, pitch_bend_range=2,
+                                microtonal_rendering_method=MicrotonalRendering.MPE))
+            render_midi(score, edo, str(midi_path))
+            manifest = RunManifest(seed=1, config_dump={"edo": 12})
+            common = dict(
+                score=score,
+                midi_path=midi_path,
+                manifest=manifest,
+                path=path,
+                edo=12,
+                run_id="hashdiv01",
+            )
+            pkg_a = write_render_package(tmp_path, base_tuning=0.0, pitch_bend_range=2, **common)
+            pkg_b = write_render_package(tmp_path, base_tuning=1.0, pitch_bend_range=2, **common)
+            pkg_c = write_render_package(tmp_path, base_tuning=0.0, pitch_bend_range=48, **common)
+            self.assertNotEqual(pkg_a.content_hash, pkg_b.content_hash)
+            self.assertNotEqual(pkg_a.content_hash, pkg_c.content_hash)
+            self.assertNotEqual(pkg_a.root, pkg_b.root)
+            # source_hash (score+midi+edo) stays stable across tuning-only changes
+            src_a = json.loads(pkg_a.structure_path.read_text(encoding="utf-8"))["source_hash"]
+            src_b = json.loads(pkg_b.structure_path.read_text(encoding="utf-8"))["source_hash"]
+            self.assertEqual(src_a, src_b)
+
+    def test_write_render_package_idempotent_second_write(self) -> None:
+        score, path = _tiny_score()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            midi_path = tmp_path / "tmp.mid"
+            edo = EDO(EDOConfig(n=12, base_tuning=0, pitch_bend_range=2,
+                                microtonal_rendering_method=MicrotonalRendering.MPE))
+            render_midi(score, edo, str(midi_path))
+            manifest = RunManifest(seed=1, config_dump={"edo": 12})
+            first = write_render_package(
+                tmp_path,
+                score=score,
+                midi_path=midi_path,
+                manifest=manifest,
+                path=path,
+                edo=12,
+                run_id="idempo001",
+            )
+            mtime_before = first.structure_path.stat().st_mtime_ns
+            second = write_render_package(
+                tmp_path,
+                score=score,
+                midi_path=midi_path,
+                manifest=manifest,
+                path=path,
+                edo=12,
+                run_id="idempo001",
+            )
+            self.assertEqual(first.root, second.root)
+            self.assertEqual(first.content_hash, second.content_hash)
+            self.assertEqual(first.structure_path.stat().st_mtime_ns, mtime_before)
+            self.assertEqual(len(list(tmp_path.glob("run_*"))), 1)
+
+    def test_write_render_package_conflict_raises(self) -> None:
+        score, path = _tiny_score()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            midi_path = tmp_path / "tmp.mid"
+            edo = EDO(EDOConfig(n=12, base_tuning=0, pitch_bend_range=2,
+                                microtonal_rendering_method=MicrotonalRendering.MPE))
+            render_midi(score, edo, str(midi_path))
+            manifest = RunManifest(seed=1, config_dump={"edo": 12})
+            package = write_render_package(
+                tmp_path,
+                score=score,
+                midi_path=midi_path,
+                manifest=manifest,
+                path=path,
+                edo=12,
+                run_id="conflict1",
+            )
+            # Corrupt identity recorded in the existing package without renaming the dir.
+            manifest_data = json.loads(package.manifest_path.read_text(encoding="utf-8"))
+            manifest_data["render_package"]["package_hash"] = "0" * 64
+            package.manifest_path.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
+            with self.assertRaises(ContractViolation):
+                write_render_package(
+                    tmp_path,
+                    score=score,
+                    midi_path=midi_path,
+                    manifest=manifest,
+                    path=path,
+                    edo=12,
+                    run_id="conflict1",
+                )
 
     def test_structure_marks_19edo_lead_microtonal(self) -> None:
         score, path = _tiny_score(edo=19)

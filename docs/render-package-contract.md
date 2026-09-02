@@ -7,7 +7,7 @@ Design source: `AUDIO_PIPELINE_ARCHITECTURE.pdf` §3.
 ## Directory layout
 
 ```text
-run_<content_hash>/
+run_<runId8>_<packageHash12>/
 ├── score.mid           # required
 ├── score.json          # required (Score serialization)
 ├── structure.json      # required — schema aimusic.structure/1
@@ -16,6 +16,11 @@ run_<content_hash>/
 └── beatstates.jsonl    # optional (one BeatState JSON per line)
 ```
 
+`source_hash` digests score + MIDI + EDO only (stored on `structure.source_hash`).
+`package_hash` digests `source_hash` + canonical structure + tuning + beatstates
+and is the directory / `RenderPackage.content_hash` identity. Manifest
+`render_package` records both hashes. Re-writing the same package is idempotent;
+a conflicting path raises `ContractViolation` (no destructive overwrite).
 ## `structure.json` (schema v1)
 
 Key fields: `schema`, `provenance` (`planner` | `inferred` | `host`), `source_hash`,

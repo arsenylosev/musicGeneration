@@ -351,6 +351,10 @@ def _content_hash_bytes(*blobs: bytes) -> str:
     return h.hexdigest()
 
 
+def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+
+
 def write_render_package(
     out_dir: Path | str,
     *,
@@ -366,17 +370,53 @@ def write_render_package(
     track_programs: dict[str, int | None] | None = None,
     run_id: str | None = None,
 ) -> RenderPackage:
-    """Write ``run_<hash>/`` containing the inter-system contract artifacts."""
+    """Write ``run_<runId8>_<packageHash12>/`` containing the inter-system contract artifacts."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     midi_src = Path(midi_path)
     score_bytes = json.dumps(score.to_dict(), sort_keys=True).encode("utf-8")
     midi_bytes = midi_src.read_bytes()
-    content_hash = _content_hash_bytes(score_bytes, midi_bytes, str(edo).encode())
+    source_hash = _content_hash_bytes(score_bytes, midi_bytes, str(edo).encode())
+
+    structure = build_structure(
+        score,
+        path,
+        edo=edo,
+        base_tuning=base_tuning,
+        vocabularies=vocabularies,
+        provenance="planner",
+        source_hash=f"sha256:{source_hash}",
+        track_programs=track_programs,
+    )
+    structure_bytes = _canonical_json_bytes(structure.to_dict())
+    tuning = build_tuning(
+        edo=edo,
+        base_tuning=base_tuning,
+        structure=structure,
+        pitch_bend_range=pitch_bend_range,
+        rendering_method=rendering_method,
+    )
+    tuning_bytes = _canonical_json_bytes(tuning)
+    beatstates_bytes = "".join(
+        json.dumps(state.to_dict(vocabularies)) + "\n" for state in path
+    ).encode("utf-8")
+    package_hash = _content_hash_bytes(
+        source_hash.encode("utf-8"),
+        structure_bytes,
+        tuning_bytes,
+        beatstates_bytes,
+    )
+
     package_id = run_id or manifest.run_id
-    root = out_dir / f"run_{package_id[:8]}_{content_hash[:12]}"
+    root = out_dir / f"run_{package_id[:8]}_{package_hash[:12]}"
     if root.exists():
-        shutil.rmtree(root)
+        existing = load_render_package(root)
+        if existing.content_hash == package_hash:
+            return existing
+        raise ContractViolation(
+            f"RenderPackage path {root} already exists with different package identity "
+            f"(existing={existing.content_hash[:12]}, computed={package_hash[:12]})"
+        )
     root.mkdir(parents=True)
 
     score_path = root / "score.json"
@@ -388,38 +428,18 @@ def write_render_package(
 
     score_path.write_bytes(score_bytes)
     shutil.copy2(midi_src, midi_dst)
-
-    structure = build_structure(
-        score,
-        path,
-        edo=edo,
-        base_tuning=base_tuning,
-        vocabularies=vocabularies,
-        provenance="planner",
-        source_hash=f"sha256:{content_hash}",
-        track_programs=track_programs,
-    )
-    structure_path.write_text(json.dumps(structure.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
-
-    tuning = build_tuning(
-        edo=edo,
-        base_tuning=base_tuning,
-        structure=structure,
-        pitch_bend_range=pitch_bend_range,
-        rendering_method=rendering_method,
-    )
-    tuning_path.write_text(json.dumps(tuning, indent=2, sort_keys=True), encoding="utf-8")
+    structure_path.write_bytes(structure_bytes)
+    tuning_path.write_bytes(tuning_bytes)
+    beatstates_path.write_bytes(beatstates_bytes)
 
     manifest_data = manifest.to_dict()
     manifest_data["render_package"] = {
-        "content_hash": content_hash,
+        "source_hash": source_hash,
+        "package_hash": package_hash,
+        "content_hash": package_hash,
         "structure_schema": STRUCTURE_SCHEMA,
     }
     manifest_path.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
-
-    with beatstates_path.open("w", encoding="utf-8") as fh:
-        for state in path:
-            fh.write(json.dumps(state.to_dict(vocabularies)) + "\n")
 
     package = RenderPackage(
         root=root,
@@ -428,7 +448,7 @@ def write_render_package(
         structure_path=structure_path,
         tuning_path=tuning_path,
         manifest_path=manifest_path,
-        content_hash=content_hash,
+        content_hash=package_hash,
         beatstates_path=beatstates_path,
     )
     assert_contract_invariants(package, score=score)
@@ -443,8 +463,14 @@ def load_render_package(root: Path | str) -> RenderPackage:
     if missing:
         raise FileNotFoundError(f"RenderPackage incomplete at {root}: missing {missing}")
     beatstates = root / "beatstates.jsonl"
-    structure = json.loads((root / "structure.json").read_text(encoding="utf-8"))
-    content_hash = str(structure.get("source_hash", "")).removeprefix("sha256:") or "unknown"
+    manifest_data = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    render_meta = manifest_data.get("render_package") or {}
+    package_hash = render_meta.get("package_hash")
+    if isinstance(package_hash, str) and package_hash:
+        content_hash = package_hash
+    else:
+        structure = json.loads((root / "structure.json").read_text(encoding="utf-8"))
+        content_hash = str(structure.get("source_hash", "")).removeprefix("sha256:") or "unknown"
     package = RenderPackage(
         root=root,
         midi_path=root / "score.mid",
