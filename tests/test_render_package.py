@@ -93,17 +93,39 @@ class TestRenderPackage(unittest.TestCase):
                                 microtonal_rendering_method=MicrotonalRendering.MPE))
             render_midi(score, edo, str(midi_path))
             manifest = RunManifest(seed=1, config_dump={"edo": 12})
-            common = dict(
+            pkg_a = write_render_package(
+                tmp_path,
                 score=score,
                 midi_path=midi_path,
                 manifest=manifest,
                 path=path,
                 edo=12,
                 run_id="hashdiv01",
+                base_tuning=0.0,
+                pitch_bend_range=2,
             )
-            pkg_a = write_render_package(tmp_path, base_tuning=0.0, pitch_bend_range=2, **common)
-            pkg_b = write_render_package(tmp_path, base_tuning=1.0, pitch_bend_range=2, **common)
-            pkg_c = write_render_package(tmp_path, base_tuning=0.0, pitch_bend_range=48, **common)
+            pkg_b = write_render_package(
+                tmp_path,
+                score=score,
+                midi_path=midi_path,
+                manifest=manifest,
+                path=path,
+                edo=12,
+                run_id="hashdiv01",
+                base_tuning=1.0,
+                pitch_bend_range=2,
+            )
+            pkg_c = write_render_package(
+                tmp_path,
+                score=score,
+                midi_path=midi_path,
+                manifest=manifest,
+                path=path,
+                edo=12,
+                run_id="hashdiv01",
+                base_tuning=0.0,
+                pitch_bend_range=48,
+            )
             self.assertNotEqual(pkg_a.content_hash, pkg_b.content_hash)
             self.assertNotEqual(pkg_a.content_hash, pkg_c.content_hash)
             self.assertNotEqual(pkg_a.root, pkg_b.root)
