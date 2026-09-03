@@ -24,7 +24,7 @@ from aimusic.core.vocab import DEFAULT_GROOVE_FAMILIES, DEFAULT_METER_SIGNATURES
 from aimusic.decode import decode_path_to_score
 from aimusic.planning.plans import MethodARunConfig, PlanningSection, run_method_a
 from aimusic.render import TrackInstrumentConfig, render_midi
-from aimusic.scoring.priors import NullPrior
+from aimusic.scoring.priors import NullPrior, Prior
 from aimusic.render.package import write_render_package
 from aimusic.scoring.tension import (
     compare_tension_curves,
@@ -161,7 +161,9 @@ def handle_generate(args: argparse.Namespace) -> None:
         ),
         edo=args.edo,
     )
-    prior = NullPrior() if getattr(args, "null_prior", False) else None
+    prior: Prior | None = (
+        NullPrior() if getattr(args, "null_prior", False) else None
+    )
     prior_bundle = getattr(args, "prior_bundle", None)
     if prior_bundle:
         try:
