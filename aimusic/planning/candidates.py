@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence, Tuple, Iterator
-import numpy as np
 
 from aimusic.core.config import StyleConfig
 from aimusic.core.core_types import BeatState
+from aimusic.core.rng import RNGKey, shuffle
 from aimusic.scoring.gttm_features import beats_per_bar
 from aimusic.scoring.priors import NullPrior, Prior, PriorContext, PriorQuery, prior_logps
 from aimusic.theory.tonal import get_fifth_steps, nearest_roots
@@ -525,15 +525,20 @@ def _candidate_generator(
     vocabs: Vocabularies,
     prior: Prior,
     context: Optional[PriorContext],
-    rng: np.random.Generator,
+    key: RNGKey,
     edo: int,
+    key_state: Optional[list[RNGKey]] = None,
 ) -> Iterator[BeatState]:
     """Yields candidate states iteratively to avoid combinatorial memory explosions."""
     
-    def _shuffled(items: Sequence[int]) -> list[int]:
-        items_list = list(items)
-        rng.shuffle(items_list)
-        return items_list
+    current_key = key
+
+    def _shuffled(items: Sequence[int]) -> Tuple[int, ...]:
+        nonlocal current_key
+        shuffled, current_key = shuffle(current_key, items)
+        if key_state is not None:
+            key_state[0] = current_key
+        return shuffled
 
     for meter_id in _shuffled(propose_meter_ids(prev_state, style, vocabs)):
         beat_in_bar = _next_beat_index(prev_state, meter_id, vocabs)
@@ -565,17 +570,18 @@ def _candidate_generator(
 def get_valid_next_states(
     prev_state: BeatState,
     t: int,
-    rng: np.random.Generator,
+    key: RNGKey,
     d_max: int,
     style_config: Optional[StyleConfig] = None,
     vocabularies: Optional[Vocabularies] = None,
     prior: Optional[Prior] = None,
     context: Optional[PriorContext] = None,
     edo: Optional[int] = None,
-) -> CandidateGenerationResult:
+) -> tuple[CandidateGenerationResult, RNGKey]:
     """Generate up to D_max legal BeatState successors for one source state."""
     
-    # 1. Resolve objects exactly once per function call
+    if not isinstance(key, RNGKey):
+        raise TypeError("key must be an RNGKey.")
     resolved_vocabs = _resolved_vocabs(vocabularies)
     resolved_style = _resolved_style(style_config)
     resolved_prior = _resolved_prior(prior)
@@ -586,14 +592,16 @@ def get_valid_next_states(
     rejections: list[CandidateRejection] = []
 
     # 2. Utilize the generator to lazily produce candidates
+    key_state = [key]
     candidate_gen = _candidate_generator(
         prev_state,
         resolved_style,
         resolved_vocabs,
         resolved_prior,
         context,
-        rng,
+        key,
         resolved_edo,
+        key_state,
     )
 
     # 3. Consume generator, breaking immediately upon reaching D_max capacity
@@ -617,9 +625,9 @@ def get_valid_next_states(
                 )
             )
 
-    return CandidateGenerationResult(
-        time_index=t,
-        source_state=prev_state,
-        states=tuple(sorted(accepted, key=_state_sort_key)),
-        rejections=tuple(rejections),
+    result = CandidateGenerationResult(
+        time_index=t, source_state=prev_state,
+        states=tuple(sorted(accepted, key=_state_sort_key)), rejections=tuple(rejections),
     )
+    # Only proposal work actually performed advances the supplied stream.
+    return result, key_state[0]
