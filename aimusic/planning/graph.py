@@ -14,6 +14,7 @@ from aimusic.planning.candidates import (
 )
 from aimusic.core.config import PriorWeights, SBConfig, StyleConfig
 from aimusic.core.core_types import BeatState, Edge, Layer
+from aimusic.core.rng import RNGKey
 from aimusic.scoring.priors import (
     NullPrior,
     Prior,
@@ -27,7 +28,6 @@ from aimusic.core.vocab import (
     Vocabularies,
     validate_vocabulary_compatibility,
 )
-import numpy as np
 
 def _state_sort_key(state: BeatState) -> tuple[int, int, int, int, int, int, int, int]:
     return (
@@ -273,9 +273,9 @@ def build_sparse_graph(
     prior: Optional[Prior] = None,
     weights: Optional[PriorWeights] = None,
     edo: Optional[int] = None,
-    rng: np.random.Generator,
+    key: RNGKey,
     d_max: int
-) -> SparseGraph:
+) -> tuple[SparseGraph, RNGKey]:
     """Build a bounded sparse graph of BeatState transitions."""
     if not isinstance(start_layer, Layer):
         raise TypeError("start_layer must be a Layer.")
@@ -283,6 +283,8 @@ def build_sparse_graph(
         raise TypeError("end_layer must be a Layer.")
     if not isinstance(total_beats, int) or total_beats < 1:
         raise ValueError("total_beats must be >= 1.")
+    if not isinstance(key, RNGKey):
+        raise TypeError("key must be an RNGKey.")
 
     resolved_sb = SBConfig() if sb_config is None else sb_config
     resolved_style = StyleConfig() if style_config is None else style_config
@@ -302,6 +304,7 @@ def build_sparse_graph(
     layers = [start_layer]
     edge_layers: list[Tuple[Edge, ...]] = []
     diagnostics: list[LayerBuildDiagnostics] = []
+    current_key = key
 
     for step in range(total_beats):
         current_layer = layers[-1]
@@ -327,7 +330,7 @@ def build_sparse_graph(
                     vocabularies=resolved_vocabs,
                 )
             else:
-                candidate_result = get_valid_next_states(
+                candidate_result, current_key = get_valid_next_states(
                     source_state,
                     current_time,
                     style_config=resolved_style,
@@ -335,7 +338,7 @@ def build_sparse_graph(
                     prior=resolved_prior,
                     context=_build_prior_context(source_state, end_layer, current_time),
                     edo=resolved_edo,
-                    rng=rng, 
+                    key=current_key,
                     d_max=d_max
                 )
 
@@ -473,4 +476,4 @@ def build_sparse_graph(
             layer_sizes=tuple(len(layer) for layer in layers),
             layer_diagnostics=tuple(diagnostics),
         ),
-    )
+    ), current_key
