@@ -13,7 +13,7 @@ plus optional `AIMUSIC_AUDIO_BACKEND=m2a` bridge. Fork PR into
 - [x] Wire `render-audio --no-validate-only`
 - [x] Bridge + skipUnless tests
 - [x] Docs / DECISIONS / tasks
-- [ ] Push + `gh pr create` → fork `main`
+- [x] Push + `gh pr create` → fork `main` (https://github.com/arsenylosev/musicGeneration/pull/4)
 
 ## Not doing
 

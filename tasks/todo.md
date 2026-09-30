@@ -5,4 +5,4 @@
 - [x] Port groove, analysis, simple render, orchestrator, bridge
 - [x] Wire `render-audio --no-validate-only`; update tests + fixtures
 - [x] Update docs / DECISIONS / backlog
-- [ ] Push branch + open PR → fork `main`
+- [x] Push branch + open PR → https://github.com/arsenylosev/musicGeneration/pull/4
