@@ -132,7 +132,7 @@ class Orchestrator:
         expressive_midi = midi_path
 
         if stages.get("analysis", True):
-            subset = {"code_version": code_version}
+            subset: dict[str, Any] = {"code_version": code_version}
             key = self.cache_key("analysis", [midi_path], subset)
             cached = self.cached_path("analysis", key, ".analysis.json")
             dest = out / f"{midi_path.stem}.analysis.json"
