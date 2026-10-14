@@ -1,4 +1,4 @@
-"""REQ-03: endpoint reachability, global feasibility, fallbacks, validated SB solve.
+""" Endpoint reachability, global feasibility, fallbacks, validated SB solve.
 
 Pipeline (distribution mode, and singleton mode as the special case):
 
