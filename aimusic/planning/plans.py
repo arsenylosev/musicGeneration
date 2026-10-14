@@ -128,6 +128,7 @@ class MethodARunConfig:
     endpoint_mode: EndpointMode = EndpointMode.DISTRIBUTION
     unreachable_policy: EndpointFallbackPolicy = EndpointFallbackPolicy.DROP_UNREACHABLE_ONLY
     endpoint_flow_tolerance: float = 1e-9
+    endpoint_capacity_epsilon: float = 1e-14
     max_fallback_iterations: int = 100
     endpoint_interior_margin: float = 1e-2
     endpoint_marginal_tolerance: float = 1e-6

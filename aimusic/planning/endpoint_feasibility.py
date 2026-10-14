@@ -61,7 +61,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+)
 
 from aimusic.core.config import SBConfig
 from aimusic.core.core_types import BeatState, EndpointDistribution, Layer
@@ -694,7 +705,11 @@ def routable_masses(
         capacity_epsilon=capacity_epsilon, normalization_tolerance=normalization_tolerance,
     )
 
-    def carried(masses, edges, states):
+    def carried(
+        masses: Mapping[BeatState, float],
+        edges: Mapping[BeatState, int],
+        states: Iterable[BeatState],
+    ) -> Dict[BeatState, float]:
         out: Dict[BeatState, float] = {}
         for state in states:
             value = min(max(float(masses[state]) - f.net.cap[edges[state]], 0.0), masses[state])
@@ -813,11 +828,11 @@ def restrict_graph_to_endpoint_support(
     """
     layers = graph.layers
     n_edges = len(graph.edges_by_time)
-    forward = [set() for _ in layers]
+    forward: List[Set[BeatState]] = [set() for _ in layers]
     forward[0] = set(start_states) & set(layers[0].states)
     for t, edges in enumerate(graph.edges_by_time):
         forward[t + 1] = {e.target for e in edges if e.source in forward[t]}
-    backward = [set() for _ in layers]
+    backward: List[Set[BeatState]] = [set() for _ in layers]
     backward[-1] = set(terminal_states) & set(layers[-1].states)
     for t in reversed(range(n_edges)):
         backward[t] = {e.source for e in graph.edges_by_time[t] if e.target in backward[t + 1]}
@@ -834,7 +849,7 @@ def restrict_graph_to_endpoint_support(
         tuple(e for e, keep in zip(edges, mask) if keep)
         for edges, mask in zip(graph.edges_by_time, masks)
     )
-    new_edge_diag = ()
+    new_edge_diag: Tuple[Tuple[Any, ...], ...] = ()
     if graph.edge_diagnostics_by_time:
         new_edge_diag = tuple(
             tuple(d for d, keep in zip(diags, mask) if keep)
@@ -870,7 +885,7 @@ def _find_unreachable(
     pos_s = _positive(p)
     pos_t = _positive(q)
     pos_t_set = set(pos_t)
-    reached = set()
+    reached: Set[BeatState] = set()
     for s in pos_s:
         if s in start_layer:
             reached.update(relation.get(s, ()))
@@ -1421,6 +1436,10 @@ def validate_solution_marginals(
     start = resolution.start.with_realized(solution.marginals.node_marginals_by_layer[0])
     end = resolution.end.with_realized(solution.marginals.node_marginals_by_layer[-1])
     e0, eT = start.max_abs_realized_error, end.max_abs_realized_error
+    if e0 is None or eT is None:
+        raise EndpointValidationError(
+            "Realized endpoint marginals were not measured after with_realized()."
+        )
     trace = solution.trace
     summary = (
         f"start_error={e0:.3e}, terminal_error={eT:.3e}, "
@@ -1476,8 +1495,13 @@ def solve_endpoint_bridge(
         max_iterations=max_fallback_iterations,
         interior_margin=interior_margin,
     )
+    if resolution.graph is None:
+        raise EndpointValidationError(
+            "Endpoint resolution produced no restricted graph for the SB solver."
+        )
+    restricted_graph = resolution.graph
     problem = build_sb_problem(
-        resolution.graph, resolution.start.effective, resolution.end.effective,
+        restricted_graph, resolution.start.effective, resolution.end.effective,
         sb_config=sb_config,
     )
     solution = solve_sb(problem)
@@ -1485,7 +1509,7 @@ def solve_endpoint_bridge(
         solution, resolution, tolerance=tolerances.marginal_tolerance
     )
     return EndpointSolveResult(
-        graph=resolution.graph,
+        graph=restricted_graph,
         resolution=resolution,
         problem=problem,
         solution=solution,
