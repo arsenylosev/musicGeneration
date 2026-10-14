@@ -50,10 +50,8 @@ from aimusic.planning.sb import (
     SBSolution,
     SampledBridgePath,
     SolvedBridge,
-    build_sb_problem,
     map_bridge_path,
     sample_bridge_path,
-    solve_sb,
 )
 from aimusic.scoring.priors import NullPrior, Prior
 from aimusic.theory.edo import EDO
