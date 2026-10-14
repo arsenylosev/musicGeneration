@@ -1,8 +1,3 @@
-"""REQ-03 plans-level tests (need the full aimusic package: vocab, decode, priors).
-
-Graph-level feasibility / fallback / validation tests live in
-``test_endpoint_feasibility.py`` and run on hand-built graphs.
-"""
 import pytest
 
 import aimusic.planning.plans as plans
