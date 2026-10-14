@@ -1,6 +1,4 @@
-"""REQ-03 tests: reachability, global feasibility, fallbacks, restriction, validation.
-
-Hand-built sparse graphs only (no vocabularies, no priors).
+""" tests: reachability, global feasibility, fallbacks, restriction, validation.
 """
 import random
 
