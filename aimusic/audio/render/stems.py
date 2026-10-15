@@ -99,7 +99,18 @@ def render_role_stems(
     stems: dict[str, Path] = {}
     for idx, inst in enumerate(midi.instruments):
         role = (inst.name or f"track_{idx}").strip().lower().replace(" ", "_") or f"track_{idx}"
-        stem_path = out_dir / f"{role}.wav"
+        # Compute the unique key BEFORE picking a filename so the on-disk name
+        # matches the dict key. Without this, two instruments sharing a role
+        # name (e.g. two "Piano" tracks) would both write to ``{role}.wav``
+        # (silently overwriting the first render) and the dict key collision
+        # logic would still point at the same path — so ``rough_mix`` would
+        # then double-add the second instrument into the mix.
+        key = role
+        n = 2
+        while key in stems:
+            key = f"{role}_{n}"
+            n += 1
+        stem_path = out_dir / f"{key}.wav"
         render_stem(
             path,
             output_path=stem_path,
@@ -107,11 +118,6 @@ def render_role_stems(
             instrument_index=idx,
             sample_rate=sr,
         )
-        key = role
-        n = 1
-        while key in stems:
-            n += 1
-            key = f"{role}_{n}"
         stems[key] = stem_path
 
     bounds = (analysis or {}).get("bar_boundaries_sec")

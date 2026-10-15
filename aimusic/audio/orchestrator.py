@@ -81,6 +81,28 @@ class Orchestrator:
     def cached_path(self, stage: str, key: str, suffix: str) -> Path:
         return self.cache_dir / stage / f"{key[:16]}{suffix}"
 
+    @staticmethod
+    def _copy_stage_artifacts(
+        cached: Path, dest: Path, *sidecar_suffixes: str
+    ) -> None:
+        """Copy a stage's primary artifact plus every existing sidecar.
+
+        Stages emit a primary file (e.g. ``<stem>.analysis.json``,
+        ``<stem>.expressive.mid``) and one or more sidecars (e.g.
+        ``<stem>.analysis.json.json`` for the provenance manifest,
+        ``<stem>.expressive.mid.diff.json`` for the note-diff report).
+        Both warm and cold cache paths must reproduce the same set of
+        files in the user output directory so downstream consumers (and
+        manifest reconciliation) see a complete artifact set regardless
+        of whether the stage ran or hit the cache.
+        """
+        shutil.copy2(cached, dest)
+        for suffix in sidecar_suffixes:
+            cached_sidecar = Path(str(cached) + suffix)
+            dest_sidecar = Path(str(dest) + suffix)
+            if cached_sidecar.is_file():
+                shutil.copy2(cached_sidecar, dest_sidecar)
+
     def _load_groove_spec(self) -> dict[str, Any]:
         groove_cfg = self.config.get("groove", {})
         spec_path = groove_cfg.get("spec_path") or groove_cfg.get("spec_file")
@@ -138,7 +160,7 @@ class Orchestrator:
             dest = out / f"{midi_path.stem}.analysis.json"
             if cached.is_file():
                 self.cache_hits["analysis"] = self.cache_hits.get("analysis", 0) + 1
-                shutil.copy2(cached, dest)
+                self._copy_stage_artifacts(cached, dest, ".json")
                 analysis_doc = json.loads(dest.read_text(encoding="utf-8"))
             else:
                 self.cache_misses["analysis"] = self.cache_misses.get("analysis", 0) + 1
@@ -146,9 +168,7 @@ class Orchestrator:
                 analysis_doc = analyze_midi(
                     midi_path, config=self.config, output_path=cached
                 )
-                shutil.copy2(cached, dest)
-                if Path(str(cached) + ".json").is_file():
-                    shutil.copy2(Path(str(cached) + ".json"), Path(str(dest) + ".json"))
+                self._copy_stage_artifacts(cached, dest, ".json")
 
         if stages.get("expressivization", True):
             groove_spec = self._load_groove_spec()
@@ -165,7 +185,7 @@ class Orchestrator:
                 self.cache_hits["expressivization"] = (
                     self.cache_hits.get("expressivization", 0) + 1
                 )
-                shutil.copy2(cached, dest)
+                self._copy_stage_artifacts(cached, dest, ".diff.json", ".json")
             else:
                 self.cache_misses["expressivization"] = (
                     self.cache_misses.get("expressivization", 0) + 1
@@ -179,10 +199,7 @@ class Orchestrator:
                     config=self.config,
                     light_cleanup=light,
                 )
-                shutil.copy2(cached, dest)
-                diff_src = Path(str(cached) + ".diff.json")
-                if diff_src.is_file():
-                    shutil.copy2(diff_src, Path(str(dest) + ".diff.json"))
+                self._copy_stage_artifacts(cached, dest, ".diff.json", ".json")
             expressive_midi = dest
 
         if stages.get("render", True):
