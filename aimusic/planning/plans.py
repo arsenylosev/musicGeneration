@@ -215,6 +215,10 @@ class MethodAPlanDiagnostics:
     bridge_converged: bool
     rng_stream_ids: Tuple[str, ...]
     endpoint_mode: str = "distribution"
+    endpoint_request_modified: bool = False
+    endpoint_modifications: Tuple[str, ...] = ()
+    endpoint_start_feasible_mass: Optional[float] = None
+    endpoint_end_feasible_mass: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -677,9 +681,10 @@ def run_method_a(
     resolution = solved.resolution
     problem, solution, bridge = solved.problem, solved.solution, solved.bridge
     start_mass, end_mass = solved.start_mass, solved.end_mass
-    if resolution.termination_reason != "feasible_as_requested":
+    if resolution.request_modified:
         _logger.warning(
-            f"Endpoint distributions modified ({resolution.termination_reason}): "
+            f"Endpoint distributions modified {list(resolution.modifications)} "
+            f"({resolution.termination_reason}): "
             f"start removed={start_mass.removed_state_mass:.6f} "
             f"trimmed={start_mass.trimmed_mass:.6f}, "
             f"terminal removed={end_mass.removed_state_mass:.6f} "
@@ -722,6 +727,10 @@ def run_method_a(
         bridge_converged=solution.trace.converged,
         rng_stream_ids=stream_ids,
         endpoint_mode=run_config.endpoint_mode.value,
+        endpoint_request_modified=resolution.request_modified,
+        endpoint_modifications=resolution.modifications,
+        endpoint_start_feasible_mass=start_mass.feasible_mass,
+        endpoint_end_feasible_mass=end_mass.feasible_mass,
     )
     return MethodAPlanResult(
         run_config=run_config,

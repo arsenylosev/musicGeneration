@@ -61,18 +61,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-)
+from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from aimusic.core.config import SBConfig
 from aimusic.core.core_types import BeatState, EndpointDistribution, Layer
@@ -326,6 +315,8 @@ class EndpointMassReport:
     realized_probabilities: Tuple[float, ...] = ()
     max_abs_realized_error: Optional[float] = None
     interior_margin: float = 0.0  # lambda of the explicit interior blend (0 = none)
+    retained_mass: Optional[float] = None
+    trimmed_requested_mass: float = 0.0
 
     @property
     def target(self) -> EndpointDistribution:  # compatibility alias
@@ -348,7 +339,20 @@ class EndpointMassReport:
 
     @property
     def feasible_mass(self) -> float:
-        return max(0.0, self.requested_mass - self.removed_state_mass)
+        if self.retained_mass is not None:
+            return self.retained_mass
+        return max(
+            0.0,
+            self.requested_mass
+            - self.removed_state_mass
+            - max(0.0, self.trimmed_requested_mass),
+        )
+
+    @property
+    def modified(self) -> bool:
+        """True if this side's effective distribution differs from the request by design
+        (removed states, trimmed states or an interior blend)."""
+        return bool(self.removed or self.trims or self.interior_margin > 0.0)
 
     @property
     def trimmed_mass(self) -> float:
@@ -379,7 +383,11 @@ class EndpointMassReport:
             "requested_mass": self.requested_mass,
             "removed_state_mass": self.removed_state_mass,
             "individually_unreachable_mass": self.individually_unreachable_mass,
+            "feasible_mass": self.feasible_mass,
+            "retained_mass": self.retained_mass,
+            "trimmed_requested_mass": self.trimmed_requested_mass,
             "trimmed_mass": self.trimmed_mass,
+            "modified": self.modified,
             "total_variation_shift": self.total_variation_shift,
             "interior_margin": self.interior_margin,
             "removed": [
@@ -440,6 +448,35 @@ class EndpointResolution:
     layer_sizes_before: Tuple[int, ...] = ()
     layer_sizes_after: Tuple[int, ...] = ()
     tightness: Optional[Tightness] = None  # of the final pair, BEFORE any interior blend
+    request_modified: bool = False
+    modifications: Tuple[str, ...] = ()
+
+    @property
+    def exact(self) -> bool:
+        """True iff the effective distributions equal the requested ones (no removal,
+        trim or blend)."""
+        return not self.request_modified
+
+    def to_dict(self, vocabularies: Optional["Vocabularies"] = None) -> dict:
+        return {
+            "policy": self.policy.value,
+            "termination_reason": self.termination_reason,
+            "request_modified": self.request_modified,
+            "modifications": list(self.modifications),
+            "iterations": self.iterations,
+            "decisions": list(self.decisions),
+            "initial_flow_check": self.initial_flow_check.to_dict(vocabularies),
+            "final_flow_check": self.final_flow_check.to_dict(vocabularies),
+            "feasibility_history": [c.to_dict(vocabularies) for c in self.feasibility_history],
+            "tight": None if self.tightness is None else self.tightness.tight,
+            "forced_zero_pair_count": (
+                None if self.tightness is None else len(self.tightness.forced_zero_pairs)
+            ),
+            "layer_sizes_before": list(self.layer_sizes_before),
+            "layer_sizes_after": list(self.layer_sizes_after),
+            "start": self.start.to_dict(vocabularies),
+            "end": self.end.to_dict(vocabularies),
+        }
 
 
 @dataclass(frozen=True)
@@ -705,11 +742,7 @@ def routable_masses(
         capacity_epsilon=capacity_epsilon, normalization_tolerance=normalization_tolerance,
     )
 
-    def carried(
-        masses: Mapping[BeatState, float],
-        edges: Mapping[BeatState, int],
-        states: Iterable[BeatState],
-    ) -> Dict[BeatState, float]:
+    def carried(masses, edges, states):
         out: Dict[BeatState, float] = {}
         for state in states:
             value = min(max(float(masses[state]) - f.net.cap[edges[state]], 0.0), masses[state])
@@ -828,11 +861,11 @@ def restrict_graph_to_endpoint_support(
     """
     layers = graph.layers
     n_edges = len(graph.edges_by_time)
-    forward: List[Set[BeatState]] = [set() for _ in layers]
+    forward = [set() for _ in layers]
     forward[0] = set(start_states) & set(layers[0].states)
     for t, edges in enumerate(graph.edges_by_time):
         forward[t + 1] = {e.target for e in edges if e.source in forward[t]}
-    backward: List[Set[BeatState]] = [set() for _ in layers]
+    backward = [set() for _ in layers]
     backward[-1] = set(terminal_states) & set(layers[-1].states)
     for t in reversed(range(n_edges)):
         backward[t] = {e.source for e in graph.edges_by_time[t] if e.target in backward[t + 1]}
@@ -849,7 +882,7 @@ def restrict_graph_to_endpoint_support(
         tuple(e for e, keep in zip(edges, mask) if keep)
         for edges, mask in zip(graph.edges_by_time, masks)
     )
-    new_edge_diag: Tuple[Tuple[Any, ...], ...] = ()
+    new_edge_diag = ()
     if graph.edge_diagnostics_by_time:
         new_edge_diag = tuple(
             tuple(d for d, keep in zip(diags, mask) if keep)
@@ -885,7 +918,7 @@ def _find_unreachable(
     pos_s = _positive(p)
     pos_t = _positive(q)
     pos_t_set = set(pos_t)
-    reached: Set[BeatState] = set()
+    reached = set()
     for s in pos_s:
         if s in start_layer:
             reached.update(relation.get(s, ()))
@@ -999,7 +1032,9 @@ def _trim_to_routable(
     removed: List[RemovedEndpointState],
     trims: List[TrimOperation],
     tol: EndpointTolerances,
-) -> Tuple[Dict[BeatState, float], Dict[BeatState, float]]:
+) -> Tuple[
+    Dict[BeatState, float], Dict[BeatState, float], Dict[BeatState, float], Dict[BeatState, float]
+]:
     """Optimal-for-retained-mass trim: keep the max-flow routable masses, renormalize.
 
     Each side keeps a_i <= pi0_i (b_j <= piT_j) summing to F*; both sides are divided by
@@ -1057,7 +1092,7 @@ def _trim_to_routable(
                 deficit_before=check.deficit,
             )
         )
-    return new_p, new_q
+    return new_p, new_q, dict(kept[SIDE_START]), dict(kept[SIDE_TERMINAL])
 
 
 def _blend_interior(
@@ -1196,7 +1231,8 @@ def resolve_endpoint_distributions(
         raise EndpointFeasibilityError(
             "No feasible endpoint support remains after removing individually unreachable states."
         )
-    p, q = _normalize(p), _normalize(q)
+    ret_p, ret_q = dict(p), dict(q)
+    p, q = _normalize(ret_p), _normalize(ret_q)
 
     # ---- Level 2: global feasibility (+ fallback) ------------------------ #
     iteration = 0
@@ -1271,12 +1307,17 @@ def resolve_endpoint_distributions(
                     "prove that no other subset is feasible).",
                     flow_check=check,
                 )
-            p, q = _normalize(p), _normalize(q)
+            ret_p, ret_q = {s: ret_p[s] for s in p}, {t: ret_q[t] for t in q}
+            p, q = _normalize(ret_p), _normalize(ret_q)
         else:  # PARTIAL_TRIM_AND_RENORMALIZE / CONDITIONAL_DROP_THEN_TRIM: Level 2 -> trim
             before = len(removed)
-            p, q = _trim_to_routable(
+            scale_p, scale_q = sum(ret_p.values()), sum(ret_q.values())
+            p, q, kept_p, kept_q = _trim_to_routable(
                 p, q, relation, check, req_p, req_q, iteration, removed, trims, tol
             )
+            # routed masses are in the current normalized units; convert back to requested
+            ret_p = {s: a * scale_p for s, a in kept_p.items()}
+            ret_q = {t: b * scale_q for t, b in kept_q.items()}
             decisions.append(
                 f"iter {iteration}: routable-mass trim (max-flow {check.flow_value:.6f}, "
                 f"deficit {check.deficit:.6f}); {len(removed) - before} states zeroed, "
@@ -1330,20 +1371,35 @@ def resolve_endpoint_distributions(
                 f"Internal invariant violated: restricted {side} layer has "
                 f"{len(layer.states)} states for {len(keep)} positive-mass endpoints."
             )
+    modifications: List[str] = []
+    if any(r.stage == "individual_reachability" for r in removed):
+        modifications.append("individual_removal")
     if any(r.stage == "global_feasibility" for r in removed):
+        modifications.append("whole_state_removal")
+    if trims or any(r.stage == "partial_trim_zeroed" for r in removed):
+        modifications.append("partial_trim")
+    if margin_applied:
+        modifications.append("interior_blend")
+    if "whole_state_removal" in modifications:
         reason = "feasible_after_whole_state_removal"
-    elif trims or any(r.stage == "partial_trim_zeroed" for r in removed):
+    elif "partial_trim" in modifications:
         reason = (
             "feasible_after_individual_removal_and_partial_trim"
-            if any(r.stage == "individual_reachability" for r in removed)
+            if "individual_removal" in modifications
             else "feasible_after_partial_trim"
         )
-    elif removed:
+    elif "individual_removal" in modifications:
         reason = "feasible_after_individual_removal"
     else:
         reason = "feasible_as_requested"
+    if margin_applied:  # never report a blended pair as exact
+        reason = (
+            "feasible_after_interior_blend"
+            if reason == "feasible_as_requested"
+            else f"{reason}_with_interior_blend"
+        )
 
-    def _report(side, requested, layer, req, eff) -> EndpointMassReport:
+    def _report(side, requested, layer, req, eff, ret) -> EndpointMassReport:
         changes = tuple(
             ProbabilityChange(s, req[s], eff.get(s, 0.0))
             for s in sorted(req, key=endpoint_state_sort_key)
@@ -1357,12 +1413,14 @@ def resolve_endpoint_distributions(
             trims=tuple(t for t in trims if t.side == side),
             probability_changes=changes,
             interior_margin=interior_margin if margin_applied else 0.0,
+            retained_mass=float(sum(ret.values())),
+            trimmed_requested_mass=float(sum(max(0.0, req[s] - ret[s]) for s in ret)),
         )
 
     return EndpointResolution(
         policy=policy,
-        start=_report(SIDE_START, start_requested, restricted.layers[0], req_p, p),
-        end=_report(SIDE_TERMINAL, end_requested, restricted.layers[-1], req_q, q),
+        start=_report(SIDE_START, start_requested, restricted.layers[0], req_p, p, ret_p),
+        end=_report(SIDE_TERMINAL, end_requested, restricted.layers[-1], req_q, q, ret_q),
         initial_flow_check=history[0],
         final_flow_check=history[-1],
         feasibility_history=tuple(history),
@@ -1373,6 +1431,8 @@ def resolve_endpoint_distributions(
         layer_sizes_before=tuple(len(layer.states) for layer in graph.layers),
         layer_sizes_after=tuple(len(layer.states) for layer in restricted.layers),
         tightness=tightness,
+        request_modified=bool(modifications),
+        modifications=tuple(modifications),
     )
 
 
@@ -1436,10 +1496,6 @@ def validate_solution_marginals(
     start = resolution.start.with_realized(solution.marginals.node_marginals_by_layer[0])
     end = resolution.end.with_realized(solution.marginals.node_marginals_by_layer[-1])
     e0, eT = start.max_abs_realized_error, end.max_abs_realized_error
-    if e0 is None or eT is None:
-        raise EndpointValidationError(
-            "Realized endpoint marginals were not measured after with_realized()."
-        )
     trace = solution.trace
     summary = (
         f"start_error={e0:.3e}, terminal_error={eT:.3e}, "
@@ -1495,13 +1551,8 @@ def solve_endpoint_bridge(
         max_iterations=max_fallback_iterations,
         interior_margin=interior_margin,
     )
-    if resolution.graph is None:
-        raise EndpointValidationError(
-            "Endpoint resolution produced no restricted graph for the SB solver."
-        )
-    restricted_graph = resolution.graph
     problem = build_sb_problem(
-        restricted_graph, resolution.start.effective, resolution.end.effective,
+        resolution.graph, resolution.start.effective, resolution.end.effective,
         sb_config=sb_config,
     )
     solution = solve_sb(problem)
@@ -1509,7 +1560,7 @@ def solve_endpoint_bridge(
         solution, resolution, tolerance=tolerances.marginal_tolerance
     )
     return EndpointSolveResult(
-        graph=restricted_graph,
+        graph=resolution.graph,
         resolution=resolution,
         problem=problem,
         solution=solution,
