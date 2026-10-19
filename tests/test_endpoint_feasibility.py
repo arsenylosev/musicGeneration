@@ -1,5 +1,4 @@
-""" tests: reachability, global feasibility, fallbacks, restriction, validation.
-"""
+"""Tests: reachability, global feasibility, fallbacks, restriction, validation."""
 import random
 
 import pytest
@@ -290,7 +289,7 @@ def test_trim_limits_raise_clear_errors():
 
 
 def _lp_max_retained(p, q, relation):
-    scipy = pytest.importorskip("scipy.optimize")
+    import scipy.optimize as sp
     pairs = [(s, t) for s in p for t in relation.get(s, ()) if t in q]
     c = [-1.0] * len(pairs)
     a_ub, b_ub = [], []
@@ -298,7 +297,7 @@ def _lp_max_retained(p, q, relation):
         a_ub.append([1.0 if ps == s else 0.0 for ps, _ in pairs]); b_ub.append(p[s])
     for t in q:
         a_ub.append([1.0 if pt == t else 0.0 for _, pt in pairs]); b_ub.append(q[t])
-    res = scipy.linprog(c, A_ub=a_ub, b_ub=b_ub, bounds=(0, None), method="highs")
+    res = sp.linprog(c, A_ub=a_ub, b_ub=b_ub, bounds=(0, None), method="highs")
     return -res.fun
 
 
@@ -518,7 +517,11 @@ def test_detect_tight_pairs_interior_cases_are_not_tight():
 def test_tight_pair_feasible_as_requested_is_blended_when_policy_allows():
     g, p, q = _tight_as_requested_case()
     res = resolve_endpoint_distributions(g, p, q, policy=DROP, interior_margin=0.05)
-    assert res.termination_reason == "feasible_as_requested"  # no fallback was needed
+    # a blended pair is NEVER reported as exact, even though no fallback was needed
+    assert res.termination_reason == "feasible_after_interior_blend"
+    assert res.request_modified and not res.exact
+    assert res.modifications == ("interior_blend",)
+    assert res.start.modified and res.end.modified
     assert res.tightness.tight and res.tightness.forced_zero_pairs == ((A1, B0),)
     assert res.start.interior_margin == 0.05 and res.end.interior_margin == 0.05
     assert res.final_flow_check.feasible  # blended pair re-verified
@@ -568,7 +571,8 @@ def test_blend_after_whole_state_removal_when_result_is_tight():
     p = _dist(0, {A0: 0.4, A1: 0.4, A2: 0.2})
     q = _dist(1, {B0: 0.4, B1: 0.4, B2: 0.2})
     res = resolve_endpoint_distributions(g, p, q, policy=DROP, interior_margin=0.05)
-    assert res.termination_reason == "feasible_after_individual_removal"
+    assert res.termination_reason == "feasible_after_individual_removal_with_interior_blend"
+    assert res.modifications == ("individual_removal", "interior_blend")
     assert res.tightness.tight and res.start.interior_margin == 0.05
     assert A2 not in res.start.effective.layer.states
 
@@ -606,3 +610,147 @@ def test_drop_unreachable_only_never_blends_a_tight_pair():
     res = resolve_endpoint_distributions(g, p, q, policy=DROP_U, interior_margin=0.2)
     assert res.tightness.tight and res.start.interior_margin == 0.0
     assert res.start.effective.probabilities == pytest.approx((0.5, 0.5))
+
+
+# ------------------------------------------- exactness classification (never silent) -- #
+def _exact_case():
+    g = _graph([A0, A1], [B0, B1], FULL)
+    return g, _dist(0, {A0: 0.3, A1: 0.7}), _dist(1, {B0: 0.6, B1: 0.4})
+
+
+@pytest.mark.parametrize("policy", list(Policy))
+def test_feasible_non_tight_request_is_exact_under_every_policy(policy):
+    g, p, q = _exact_case()
+    res = resolve_endpoint_distributions(g, p, q, policy=policy, interior_margin=0.2)
+    assert res.exact and not res.request_modified and res.modifications == ()
+    assert res.termination_reason == "feasible_as_requested"
+    assert res.start.effective.probabilities == pytest.approx(p.probabilities)
+    assert res.end.effective.probabilities == pytest.approx(q.probabilities)
+    assert not res.start.modified and not res.end.modified
+
+
+@pytest.mark.parametrize("policy", [Policy.STRICT, DROP_U])
+def test_strict_style_policies_preserve_masses_even_when_tight(policy):
+    g, p, q = _tight_as_requested_case()
+    res = resolve_endpoint_distributions(g, p, q, policy=policy, interior_margin=0.2)
+    assert res.tightness.tight
+    assert res.exact and res.termination_reason == "feasible_as_requested"
+    assert res.start.effective.probabilities == pytest.approx((0.5, 0.5))  # untouched
+
+
+def test_every_modification_kind_is_classified():
+    g, p, q = _unreachable_case()
+    assert resolve_endpoint_distributions(g, p, q, policy=DROP_U).modifications == (
+        "individual_removal",
+    )
+    g, p, q = _counter_example()
+    assert resolve_endpoint_distributions(g, p, q, policy=DROP).modifications == (
+        "whole_state_removal",
+    )
+    assert resolve_endpoint_distributions(g, p, q, policy=TRIM).modifications == ("partial_trim",)
+    blended = resolve_endpoint_distributions(
+        *_tight_as_requested_case(), policy=DROP, interior_margin=0.1
+    )
+    assert blended.modifications == ("interior_blend",) and not blended.exact
+
+
+# ---------------------------------------- retained / trimmed mass accounting (requested units) -- #
+def _identity(rep):
+    return rep.removed_state_mass + rep.feasible_mass + rep.trimmed_requested_mass
+
+
+def test_feasible_mass_is_retained_mass_after_partial_trim():
+    g, p, q = _counter_example()  # p=(.9,.1), q=(.1,.9); F* = 0.2
+    res = resolve_endpoint_distributions(g, p, q, policy=TRIM)
+    for rep in (res.start, res.end):
+        assert rep.feasible_mass == pytest.approx(0.2)  # NOT requested - removed (== 1.0)
+        assert rep.removed_state_mass == 0.0
+        assert rep.trimmed_requested_mass == pytest.approx(0.8)
+        assert _identity(rep) == pytest.approx(rep.requested_mass)
+        assert rep.feasible_mass == pytest.approx(res.final_flow_check.flow_value * 0.2)
+
+
+def test_mass_identity_with_zeroed_states_and_partial_trims():
+    g, p, q = _zeroed_case()  # A1 zeroed (removed), A0 and B1 trimmed
+    res = resolve_endpoint_distributions(g, p, q, policy=TRIM)
+    assert res.start.removed_state_mass == pytest.approx(0.4)
+    assert res.start.feasible_mass == pytest.approx(0.4)
+    assert res.start.trimmed_requested_mass == pytest.approx(0.2)
+    assert res.end.removed_state_mass == 0.0
+    assert res.end.feasible_mass == pytest.approx(0.4)
+    assert res.end.trimmed_requested_mass == pytest.approx(0.6)
+    for rep in (res.start, res.end):
+        assert _identity(rep) == pytest.approx(rep.requested_mass)
+
+
+def test_retained_mass_is_in_requested_units_after_level1_removal_then_trim():
+    # Level 1 removes A2/B2 (0.2 each) and renormalizes; the trim then runs in the
+    # renormalized units. feasible_mass must still be expressed in REQUESTED units.
+    g = _graph([A0, A1, A2], [B0, B1, B2], DISJOINT)
+    p = _dist(0, {A0: 0.7, A1: 0.1, A2: 0.2})
+    q = _dist(1, {B0: 0.1, B1: 0.7, B2: 0.2})
+    res = resolve_endpoint_distributions(g, p, q, policy=COND)
+    for rep in (res.start, res.end):
+        assert rep.removed_state_mass == pytest.approx(0.2)
+        assert rep.feasible_mass == pytest.approx(0.2)
+        assert rep.trimmed_requested_mass == pytest.approx(0.6)
+        assert _identity(rep) == pytest.approx(rep.requested_mass)
+
+
+def test_whole_state_removal_identity_has_no_trimmed_mass():
+    g, p, q = _counter_example()
+    res = resolve_endpoint_distributions(g, p, q, policy=DROP)
+    for rep in (res.start, res.end):
+        assert rep.trimmed_requested_mass == 0.0
+        assert _identity(rep) == pytest.approx(rep.requested_mass)
+
+
+def test_interior_blend_does_not_change_retained_mass():
+    g, p, q = _tight_as_requested_case()
+    res = resolve_endpoint_distributions(g, p, q, policy=DROP, interior_margin=0.1)
+    for rep in (res.start, res.end):
+        assert rep.feasible_mass == pytest.approx(1.0)  # nothing removed or trimmed
+        assert rep.trimmed_requested_mass == 0.0 and rep.interior_margin == 0.1
+        assert rep.total_variation_shift > 0.0  # the blend is visible here instead
+
+
+def test_serialization_includes_feasible_mass_and_classification():
+    import json
+
+    g, p, q = _counter_example()
+    res = resolve_endpoint_distributions(g, p, q, policy=TRIM)
+    data = res.to_dict()
+    json.dumps(data)  # fully JSON-serializable
+    assert data["request_modified"] is True and data["modifications"] == ["partial_trim"]
+    assert data["termination_reason"] == "feasible_after_partial_trim"
+    for side in ("start", "end"):
+        entry = data[side]
+        assert entry["feasible_mass"] == pytest.approx(0.2)
+        assert entry["retained_mass"] == pytest.approx(0.2)
+        assert entry["trimmed_requested_mass"] == pytest.approx(0.8)
+        assert entry["removed_state_mass"] == 0.0 and entry["modified"] is True
+    exact = resolve_endpoint_distributions(*_exact_case()).to_dict()
+    assert exact["request_modified"] is False and exact["modifications"] == []
+    assert exact["start"]["feasible_mass"] == pytest.approx(1.0)
+
+
+def test_feasible_mass_fallback_applies_the_full_accounting_identity():
+    # A report built WITHOUT a routed total must not overstate retained mass.
+    layer_s, layer_e = Layer(0, (A0,)), Layer(1, (B0,))
+    rep = ef.EndpointMassReport(
+        side="start",
+        requested=EndpointDistribution(layer_s, (1.0,)),
+        effective=EndpointDistribution(layer_s, (1.0,)),
+        requested_mass=1.0,
+        removed=(
+            ef.RemovedEndpointState("start", A1, 0.20, "x", "global_feasibility", 1),
+        ),
+        trimmed_requested_mass=0.15,
+    )
+    assert rep.retained_mass is None
+    assert rep.feasible_mass == pytest.approx(0.65)  # not 0.80
+    assert rep.removed_state_mass + rep.feasible_mass + rep.trimmed_requested_mass == pytest.approx(1.0)
+    # an explicit routed total always wins
+    assert ef.replace(rep, retained_mass=0.6).feasible_mass == 0.6
+    # fully clipped at zero rather than negative
+    assert ef.replace(rep, trimmed_requested_mass=5.0).feasible_mass == 0.0

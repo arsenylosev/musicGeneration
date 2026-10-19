@@ -186,6 +186,24 @@ class TestMethodAOrchestration(unittest.TestCase):
                 report.max_abs_realized_error, run_config.endpoint_marginal_tolerance
             )
         self.assertTrue(result.endpoint_resolution.final_flow_check.feasible)
+        # modifications are always classified, never silent
+        resolution = result.endpoint_resolution
+        self.assertEqual(
+            result.diagnostics.endpoint_request_modified, resolution.request_modified
+        )
+        self.assertEqual(result.diagnostics.endpoint_modifications, resolution.modifications)
+        self.assertAlmostEqual(
+            result.diagnostics.endpoint_start_feasible_mass, result.start_mass.feasible_mass
+        )
+        self.assertAlmostEqual(
+            result.diagnostics.endpoint_end_feasible_mass, result.end_mass.feasible_mass
+        )
+        self.assertEqual(resolution.exact, resolution.termination_reason == "feasible_as_requested")
+        for report in (result.start_mass, result.end_mass):
+            self.assertAlmostEqual(
+                report.removed_state_mass + report.feasible_mass + report.trimmed_requested_mass,
+                report.requested_mass,
+            )
         self.assertEqual(next_key, input_key.next_key())
         self.assertEqual(
             result.diagnostics.rng_stream_ids,
