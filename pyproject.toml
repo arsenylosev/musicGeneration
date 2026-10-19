@@ -37,6 +37,7 @@ dev = [
   "pytest",
   "flake8",
   "mypy",
+  "scipy",
 ]
 
 [tool.setuptools]
@@ -51,4 +52,3 @@ python_files = ["test_*.py"]
 markers = [
   "ml: tests requiring optional JAX/ML dependencies (pip install -e \".[ml]\")",
 ]
-
