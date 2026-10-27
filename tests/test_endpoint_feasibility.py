@@ -736,7 +736,7 @@ def test_serialization_includes_feasible_mass_and_classification():
 
 def test_feasible_mass_fallback_applies_the_full_accounting_identity():
     # A report built WITHOUT a routed total must not overstate retained mass.
-    layer_s, layer_e = Layer(0, (A0,)), Layer(1, (B0,))
+    layer_s = Layer(0, (A0,))
     rep = ef.EndpointMassReport(
         side="start",
         requested=EndpointDistribution(layer_s, (1.0,)),
