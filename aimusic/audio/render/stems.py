@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import tempfile
@@ -19,6 +18,7 @@ import soundfile as sf
 from aimusic.audio.analysis.from_midi import _infer_role
 from aimusic.audio.midi_events import MidiEvents, MidiEventError
 from aimusic.audio.render.simple_r import _peak_dbfs, render_stem
+from aimusic.audio.render.stem_publication import pin_output
 from aimusic.audio.render.util import as_mono, peak_normalize
 
 
@@ -137,57 +137,19 @@ def _stem_id(stem: SourceStem) -> str:
     return f'track_{stem.source_track_index:04d}_{slug}'
 
 
-def _output_root(output: Path | str) -> Path:
-    path = Path(output)
-    if path.is_symlink():
-        raise ValueError(f'Stem output root is a symlink: {path}')
-    path.mkdir(parents=True, exist_ok=True)
-    return path.resolve(strict=True)
-
-
-def _check_new_files(root: Path, names: list[str]) -> None:
-    for name in names:
-        target = root / name
-        if Path(name).name != name or target.resolve().parent != root:
-            raise ValueError(f'Stem output violates containment: {target}')
-        if target.exists() or target.is_symlink():
-            raise FileExistsError(f'Stem output already exists: {target}')
-
-
-def _publish_staged(staging: Path, root: Path, names: list[str]) -> None:
-    """Link complete files exclusively; never truncate/follow a destination.
-
-    A pinned directory descriptor protects the publication root. This is not
-    crash-atomic as a set; concurrent writers to the same output are unsupported.
-    """
-    _check_new_files(root, names)
-    parent_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    published = []
-    try:
-        for name in names:
-            os.link(staging / name, name, dst_dir_fd=parent_fd, follow_symlinks=False)
-            published.append(name)
-    except BaseException:
-        for name in reversed(published):
-            os.unlink(name, dir_fd=parent_fd)
-        raise
-    finally:
-        os.close(parent_fd)
-
-
 def copy_stem_artifacts(source: Path, output: Path) -> None:
     """Restore a stem directory without deleting or overwriting user files."""
     files = sorted(p for p in source.iterdir() if p.name != '_complete')
     if any(p.is_symlink() or not p.is_file() for p in files):
         raise ValueError('Stem artifacts must be regular files, not symlinks/directories')
-    root = _output_root(output)
     names = [p.name for p in files]
-    _check_new_files(root, names)
-    with tempfile.TemporaryDirectory(prefix='.stems-', dir=root) as tmp:
-        staging = Path(tmp)
-        for path in files:
-            shutil.copyfile(path, staging / path.name)
-        _publish_staged(staging, root, names)
+    with pin_output(output) as root:
+        root.check_new_files(names)
+        with tempfile.TemporaryDirectory(prefix='.stems-') as tmp:
+            staging = Path(tmp)
+            for path in files:
+                shutil.copyfile(path, staging / path.name)
+            root.publish(staging, names)
 
 
 def render_role_stems(
@@ -220,8 +182,6 @@ def render_role_stems(
         roles.setdefault(stem.role, []).append(key)
     names = [row['id'] + suffix for row in rows for suffix in ('.mid', '.wav', '.wav.json')]
     names.extend(GENERATED.values())
-    root = _output_root(output_dir)
-    _check_new_files(root, names)
 
     bounds = (analysis or {}).get('bar_boundaries_sec')
     if not bounds:
@@ -231,26 +191,28 @@ def render_role_stems(
         bounds = [i * bar for i in range(max(1, round(end / bar)) + 1)]
         bounds[-1] = end
 
-    with tempfile.TemporaryDirectory(prefix='.stems-', dir=root) as tmp:
-        staging = Path(tmp)
-        waves: list[Path | str] = []
-        for stem, row in zip(logical, rows):
-            midi_path = staging / row['midi']
-            stem.midi.save(midi_path)
-            wav_path = staging / row['wav']
-            render_stem(midi_path, output_path=wav_path, config=cfg, sample_rate=sr)
-            # Relative artifact references survive cache-directory copies.
-            sidecar = Path(str(wav_path) + '.json')
-            manifest = json.loads(sidecar.read_text(encoding='utf-8'))
-            manifest['output_path'] = row['wav']
-            sidecar.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding='utf-8')
-            waves.append(wav_path)
-        render_click(bounds, sample_rate=sr, output_path=staging / GENERATED['click'], peak_dbfs=peak_dbfs)
-        rough_mix(waves, output_path=staging / GENERATED['rough_mix'], peak_dbfs=peak_dbfs)
-        write_bar_boundary_table(bounds, output_path=staging / GENERATED['bar_boundaries'])
-        (staging / GENERATED['role_index']).write_text(json.dumps(
-            {'schema_version': STEM_LAYOUT_VERSION, 'stems': rows, 'roles': roles,
-             'generated': GENERATED}, indent=2, sort_keys=True), encoding='utf-8')
-        _publish_staged(staging, root, names)
+    with pin_output(output_dir) as root:
+        root.check_new_files(names)
+        with tempfile.TemporaryDirectory(prefix='.stems-') as tmp:
+            staging = Path(tmp)
+            waves: list[Path | str] = []
+            for stem, row in zip(logical, rows):
+                midi_path = staging / row['midi']
+                stem.midi.save(midi_path)
+                wav_path = staging / row['wav']
+                render_stem(midi_path, output_path=wav_path, config=cfg, sample_rate=sr)
+                # Relative artifact references survive cache-directory copies.
+                sidecar = Path(str(wav_path) + '.json')
+                manifest = json.loads(sidecar.read_text(encoding='utf-8'))
+                manifest['output_path'] = row['wav']
+                sidecar.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding='utf-8')
+                waves.append(wav_path)
+            render_click(bounds, sample_rate=sr, output_path=staging / GENERATED['click'], peak_dbfs=peak_dbfs)
+            rough_mix(waves, output_path=staging / GENERATED['rough_mix'], peak_dbfs=peak_dbfs)
+            write_bar_boundary_table(bounds, output_path=staging / GENERATED['bar_boundaries'])
+            (staging / GENERATED['role_index']).write_text(json.dumps(
+                {'schema_version': STEM_LAYOUT_VERSION, 'stems': rows, 'roles': roles,
+                 'generated': GENERATED}, indent=2, sort_keys=True), encoding='utf-8')
+            root.publish(staging, names)
     return {**{row['id']: Path(output_dir) / row['wav'] for row in rows},
             **{key: Path(output_dir) / name for key, name in GENERATED.items()}}

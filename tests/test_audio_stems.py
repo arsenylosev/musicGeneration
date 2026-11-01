@@ -630,7 +630,7 @@ class TestStemNamespace(unittest.TestCase):
                     raise OSError('publication failed')
                 return real_link(*args, **kwargs)
 
-            with patch('aimusic.audio.render.stems.os.link', side_effect=fail_second_link):
+            with patch('aimusic.audio.render.stem_publication.os.link', side_effect=fail_second_link):
                 with self.assertRaisesRegex(OSError, 'publication failed'):
                     render_role_stems(source, output_dir=out)
             self.assertEqual(list(out.iterdir()), [])

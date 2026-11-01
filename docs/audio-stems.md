@@ -68,14 +68,25 @@ output root is refused. Unrelated files in a real output directory are retained.
 Choose a fresh output directory for another run; stems are never recursively
 deleted merely to restore a cache hit.
 
-Rendering occurs in a private temporary directory. Exclusive hard-link
-publication of complete files uses a pinned destination directory descriptor;
-files appearing after preflight cannot be overwritten. Ordinary publication
-failures remove files published by that invocation. Publication is not
-crash-atomic as an entire set; concurrent writers to one output directory are
-unsupported. This is a stem-publication guarantee, not a redesign of the other
-orchestrator stages. The layout revision invalidates old name-based stem caches;
-full renderer/asset/digest cache contracts remain C5 work.
+The output directory is pinned **before** staging starts. Rendering uses private
+system-temporary scratch space, not a path beneath the output directory. Complete
+artifacts are copied to exclusive staging files on the output filesystem, then
+hard-linked to their final names without overwriting files appearing after
+preflight. On POSIX, directory traversal, staging, publication and rollback use
+directory descriptors; identity checks detect an ancestor swap, and cleanup still
+addresses the originally selected directory. On Windows, `CreateFileW` handles
+hold every ancestor without write/delete sharing and reject reparse points
+(including junctions); publication uses Windows-compatible path-based `os.link`,
+without POSIX-only flags or dirfd arguments. These locks remain held through
+cleanup. The Windows branch has simulated API/locking, collision and rollback
+tests; this evidence is **not** a native Windows run.
+
+Ordinary publication failures remove only matching files published by that
+invocation. Publication is not crash-atomic as an entire set; concurrent writers
+to one output directory are unsupported. This is a stem-publication guarantee,
+not a redesign of the other orchestrator stages. The layout revision invalidates
+old name-based stem caches; full renderer/asset/digest cache contracts remain C5
+work.
 
 ## Evidence boundary
 
