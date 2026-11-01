@@ -3,9 +3,9 @@
 Stem isolation uses the audio-local absolute-tick event model, **not**
 PrettyMIDI's instrument list. One note-bearing SMF source track becomes one
 stem, even when it uses several MPE member channels or program changes. Type-0
-MIDI therefore remains one logical stem. Declared silent source tracks survive;
-undeclared named/unused-channel silent instrument tracks are retained when they
-are not conductor/setup-only tracks. An empty conductor is not audible content.
+MIDI therefore remains one logical stem. Explicitly declared silent source tracks
+survive; names or unused-channel controllers alone do not establish instrument
+identity. Setup-only tracks never create stems, even without tempo metadata.
 
 Every stem's `.mid` retains the original track slots and equal-tick ordering,
 all channel-less events (including conductor metadata and opaque SysEx), and

@@ -280,6 +280,67 @@ class TestLogicalStemIsolation(unittest.TestCase):
         for stem in isolate_source_stems(source):
             self.assertIn(setup, [e.message for e in stem.midi.events])
 
+    def test_setup_only_track_without_tempo_does_not_claim_member_channels(self):
+        import mido
+        from aimusic.audio.midi_events import MidiEvents
+        from aimusic.audio.render.stems import isolate_source_stems
+        for master in (False, True):
+            with self.subTest(master=master):
+                setup = [(0, mido.MetaMessage('track_name', name='setup')),
+                         (0, mido.Message('control_change', channel=0, control=7, value=91))]
+                if master:
+                    setup.extend((0, mido.Message('control_change', channel=0, control=cc, value=value))
+                                 for cc, value in ((101, 0), (100, 6), (6, 4)))
+                setup.append((0, mido.Message('program_change', channel=2, program=81)))
+                midi = mido.MidiFile(type=1)
+                midi.tracks = [_event_track(*setup), _event_track(
+                    (0, mido.MetaMessage('track_name', name='lead')),
+                    (1, mido.Message('note_on', channel=2, note=60)),
+                    (10, mido.Message('note_off', channel=2, note=60)))]
+                source = MidiEvents.from_mido(midi)
+                stems = isolate_source_stems(source)
+                self.assertEqual([s.source_track_index for s in stems], [1])
+                self.assertEqual(stems[0].channels, (2,))
+                self.assertEqual(stems[0].midi.events, source.events)
+
+    def test_master_setup_remains_shared_without_a_silent_stem(self):
+        import mido
+        from aimusic.audio.midi_events import MidiEvents
+        from aimusic.audio.render.stems import isolate_source_stems
+        midi = mido.MidiFile(type=1)
+        setup = [(0, mido.Message('control_change', channel=0, control=cc, value=value))
+                 for cc, value in ((101, 0), (100, 6), (6, 4))]
+        midi.tracks = [_event_track(*setup)]
+        for channel in (2, 3):
+            midi.tracks.append(_event_track(
+                (1, mido.Message('note_on', channel=channel, note=60)),
+                (10, mido.Message('note_off', channel=channel, note=60))))
+        source = MidiEvents.from_mido(midi)
+        stems = isolate_source_stems(source)
+        self.assertEqual([s.source_track_index for s in stems], [1, 2])
+        for stem in stems:
+            self.assertEqual([e.message for e in stem.midi.events if e.channel == 0],
+                             [msg for _, msg in setup])
+            self.assertEqual(len(stem.midi.notes), 1)
+
+    def test_named_metadata_track_is_not_an_undeclared_silent_instrument(self):
+        import mido
+        from aimusic.audio.midi_events import MidiEvents
+        from aimusic.audio.render.stems import isolate_source_stems
+        midi = _logical_fixture()
+        midi.tracks.append(_event_track((0, mido.MetaMessage('track_name', name='session setup'))))
+        self.assertEqual([s.source_track_index for s in isolate_source_stems(MidiEvents.from_mido(midi))], [1, 2])
+
+    def test_declared_setup_track_has_authoritative_channel_ownership(self):
+        import mido
+        from aimusic.audio.midi_events import MidiEvents, MidiEventError
+        from aimusic.audio.render.stems import isolate_source_stems
+        midi = _logical_fixture()
+        midi.tracks.append(_event_track((0, mido.Message('program_change', channel=2))))
+        with self.assertRaisesRegex(MidiEventError, '[Oo]wnership.*track.*channel 2'):
+            isolate_source_stems(MidiEvents.from_mido(midi), analysis={'tracks': [
+                {'source_track_index': 3, 'role': 'pads', 'role_source': 'structure.json'}]})
+
     def test_rejects_cross_track_channel_setup_ownership(self):
         import mido
         from aimusic.audio.midi_events import MidiEvents, MidiEventError

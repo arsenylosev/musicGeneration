@@ -228,20 +228,12 @@ class MidiEvents:
         tracks = {n.track for n in self.notes} | set(declared_tracks)
         if any(not 0 <= t < self.track_count for t in tracks):
             raise MidiEventError('Invalid declared source track index')
-        note_channels = {n.channel for n in self.notes}
-        local: dict[int, set[int]] = {t: set() for t in range(self.track_count)}
-        names, conductors = set(), set()
+        # Names, unused-channel controllers and tempo metadata do not establish
+        # instrument identity. Only notes or explicit source declarations do.
+        local: dict[int, set[int]] = {t: set() for t in tracks}
         for event in self.events:
-            if event.channel is not None:
+            if event.track in tracks and event.channel is not None:
                 local[event.track].add(event.channel)
-            elif event.message.type == 'track_name':
-                names.add(event.track)
-            elif event.message.type in ('set_tempo', 'time_signature', 'key_signature', 'sysex'):
-                conductors.add(event.track)
-        # Preserve silent instruments too; setup-only tracks for other voices
-        # are not instruments. Explicit planner identities take precedence.
-        tracks |= {t for t, channels in local.items() if t not in conductors and
-                   (channels - note_channels or (t in names and not channels))}
         owners: dict[int, int] = {}
         for track in sorted(tracks):
             for channel in sorted(local[track]):
