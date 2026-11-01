@@ -10,7 +10,8 @@ import pretty_midi as pm
 import soundfile as sf
 
 from aimusic.audio.manifest import write_manifest
-from aimusic.audio.render.util import as_mono, peak_normalize
+from aimusic.audio.render.util import as_mono, peak_normalize, render_frames
+from aimusic.audio.midi_events import MidiEvents
 
 
 def _peak_dbfs(cfg: dict[str, Any]) -> float:
@@ -30,6 +31,8 @@ def render_stem(
     output_path: Path | str | None = None,
     config: dict[str, Any] | None = None,
     instrument_index: int | None = None,
+    duration_sec: float | None = None,
+    release_tail_sec: float = 0.25,
 ) -> Path:
     """Render MIDI to a mono WAV via additive sines (not production quality)."""
     _ = soundfont  # unused; simple backend ignores SoundFont
@@ -45,8 +48,10 @@ def render_stem(
     if instrument_index is not None:
         instruments = [midi.instruments[instrument_index]]
 
-    duration = max(float(midi.get_end_time()) + 0.25, 0.25)
-    n = int(duration * sr)
+    if duration_sec is None:
+        source = MidiEvents.load(path)
+        duration_sec = float(source.tempo_map.seconds(max(e.tick for e in source.events)))
+    n = render_frames(sr, duration_sec, release_tail_sec)
     audio = np.zeros(n, dtype=np.float64)
     for inst in instruments:
         for note in inst.notes:

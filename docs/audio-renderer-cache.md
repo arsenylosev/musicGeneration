@@ -1,4 +1,4 @@
-# Verified renderer and cache boundary (C5)
+# Verified renderer and cache boundary (C5 / C6 partial)
 
 All contracts live in `aimusic.audio`; core imports and validate-only remain
 asset-free. `render_role_stems` first builds a `StemRenderPlan`: isolated source
@@ -14,21 +14,22 @@ hard-coded simple-render bypass.
 - Requests carry event-preserving isolated MIDI, effective tuning, sample rate,
   common duration/release-tail intent, output path, config and resolved asset.
 - Providers probe resources without allocating a synth and return backend/code/
-  native versions plus capabilities. Future adapters must only classify known
-  missing dependencies/assets as `MissingRendererResource`; an arbitrary
-  `ImportError`, `OSError` or native runtime exception is **not** a missing resource.
+  native versions plus capabilities. Adapters classify only known resource-load
+  failures as `MissingRendererResource`. FluidSynth DLL-load `OSError` is handled
+  at import; arbitrary import defects and synthesis-time errors propagate.
 - Routing uses `render.routing.<canonical-role>.default` or `.microtonal`, then
   the global backend for a missing route. Unknown backend names are errors.
 - Only an explicit `allow_simple_fallback: true` permits selection-time fallback,
   and only if simple supports the request. `listening` forbids fallback.
 - Execution never retries with a different renderer, even if a resource disappears
   after selection. Each result must be a regular WAV at the requested path with
-  nonempty finite samples and the requested sample rate. Its SHA-256 is recorded.
+  nonempty finite samples and the requested sample rate. Short outputs are padded
+  to the common frame count; overlong outputs fail. Peak limiting precedes hashing.
 - Application backend selection is separate: native is the default;
   `AIMUSIC_AUDIO_BACKEND=m2a` explicitly selects the optional bridge. Native defects
   never trigger bridge failover. Unknown environment values now fail clearly.
 
-The only shipped renderer remains the **simple integer-pitch sine preview**.
+The lightweight default remains the **simple integer-pitch sine preview**.
 Its capability is `direct_12`, not instrument/controller fidelity. The admission
 screen rejects non-12/fractional-base metadata, nonzero pitched-channel wheels,
 tuning/unknown RPN/NRPN data and unverified SysEx (including MTS), rather than flattening
@@ -37,11 +38,12 @@ exporter's 48-semitone range, which does not detune a zero wheel).
 Percussion remains drum-key based. This conservative screen is not the later
 Score-derived MPE proof or audio f0 measurement.
 
-FluidSynth currently raises an actionable missing-adapter error. No bindings,
-native library or SoundFont are installed/downloaded here. Common horizon/tail
-fields prepare the adapter contract; native event dispatch, aligned frame counts,
-release-tail enforcement and listening headroom remain C6 work. The existing
-simple preview's fixed 0.25-second tail is unchanged.
+C6 tasks 7.1–7.3 add the [clean-room FluidSynth adapter](audio-fluidsynth.md),
+optional pinned bindings, common horizon/fixed tail, aligned WAVs and attenuation-only
+0.95 mix ceiling. Providers query versions without allocating a synth; fixed native
+settings enter identity and are checked on creation. This remains asset-free mocked
+implementation evidence, not native listening/tuning acceptance. The FluidSynth
+registry capability is still `direct_12` until C7's native tuning proof.
 
 SoundFont selection reuses config precedence (`paths.soundfont`, then
 `AIMUSIC_SOUNDFONT`; the resolver also supports explicit CLI input). An explicitly
@@ -79,7 +81,8 @@ versions plus each backend's declared native-library versions (including
 `not-installed` identity, not a newly required dependency.
 
 Per-WAV `.json` files repeat the actual renderer/capability/asset identity,
-`midi_sha256` and `output_sha256`, using relative output names. Application
+`midi_sha256` and `output_sha256`, using relative output names. They also include
+render settings, final aligned frame count and the applied peak-limiting gain. Application
 backend provenance is separate from per-stem renderer provenance. Output/cache directory paths, config
 source paths and SoundFont display paths are excluded from the fingerprint; equal
 asset bytes at a new path can reuse a result. Upstream cache artifacts use their

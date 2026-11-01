@@ -1,4 +1,4 @@
-"""Deterministic stem rendering helpers (simple backend)."""
+"""Logical stems, common render horizon and deterministic rough mixing."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from aimusic.audio.render.registry import RenderRequest, ResolvedRenderer, rende
 from aimusic.audio.render import registry
 from aimusic.audio.render.simple_r import _peak_dbfs
 from aimusic.audio.render.stem_publication import pin_output
-from aimusic.audio.render.util import as_mono, peak_normalize
+from aimusic.audio.render.util import peak_normalize, render_frames, limit_peak
 
 
 @dataclass(frozen=True)
@@ -71,13 +71,14 @@ def render_click(
     sample_rate: int = 48000,
     output_path: Path | str,
     peak_dbfs: float = -12.0,
+    frames: int | None = None,
 ) -> Path:
     """Simple metronome click at bar starts."""
     if len(bar_boundaries_sec) < 2:
         duration = 1.0
     else:
         duration = float(bar_boundaries_sec[-1])
-    n = max(1, int(duration * sample_rate))
+    n = frames if frames is not None else max(1, int(duration * sample_rate))
     audio = np.zeros(n, dtype=np.float64)
     click_len = int(0.01 * sample_rate)
     t = np.arange(click_len) / sample_rate
@@ -95,16 +96,22 @@ def render_click(
 
 
 def rough_mix(
-    stem_paths: list[Path | str], *, output_path: Path | str, peak_dbfs: float = -12.0
+    stem_paths: list[Path | str], *, output_path: Path | str, peak_dbfs: float | None = None,
+    peak: float = 0.95
 ) -> Path:
-    """Sum stems to a rough mono mix for listening."""
+    """Sum each supplied source once, pad, then attenuate only if over ceiling."""
     waves: list[np.ndarray] = []
     sr = None
     for p in stem_paths:
         data, file_sr = sf.read(str(p), always_2d=False)
-        data = as_mono(np.asarray(data, dtype=np.float64))
+        data = np.asarray(data, dtype=np.float64)
+        if not np.isfinite(data).all():
+            raise ValueError('stem contains nonfinite samples')
+        data = data.mean(axis=1) if data.ndim == 2 else data
         if sr is None:
             sr = int(file_sr)
+        elif sr != file_sr:
+            raise ValueError('stem sample rates differ')
         waves.append(data)
     if not waves or sr is None:
         raise ValueError("no stems to mix")
@@ -112,7 +119,8 @@ def rough_mix(
     mix = np.zeros(max_len, dtype=np.float64)
     for w in waves:
         mix[: w.shape[0]] += w
-    mix = peak_normalize(mix, peak_dbfs)
+    ceiling = min(peak, 10 ** (peak_dbfs / 20)) if peak_dbfs is not None else peak
+    mix, _ = limit_peak(mix, ceiling)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(out), mix.astype(np.float32), sr, subtype="FLOAT")
@@ -132,7 +140,7 @@ def write_bar_boundary_table(
 
 
 # Layout revision invalidates old name-keyed stem caches, not renderer policy.
-STEM_LAYOUT_VERSION = 2
+STEM_LAYOUT_VERSION = 3
 GENERATED = {'click': 'click.wav', 'rough_mix': 'rough_mix.wav',
              'bar_boundaries': 'bar_boundaries.json', 'role_index': 'role_index.json'}
 
@@ -201,6 +209,13 @@ def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None 
         raise ValueError('no source stems to render')
     cfg = deepcopy(config or {})
     cfg['render'] = normalize_routing(cfg.get('render', {}))
+    render = cfg['render']
+    render.setdefault('release_tail_sec', 0.25)
+    render.setdefault('mix_peak', 0.95)
+    configured_end = float(render.get('duration_sec', 0))
+    tail = float(render['release_tail_sec'])
+    render_frames(int(render.get('sample_rate', 48000)), configured_end, tail)
+    limit_peak(np.zeros(1), float(render['mix_peak']))
     asset = resolve_soundfont(cfg)
     metadata = analysis or {}
     declarations = {row.get('source_track_index'): row for row in metadata.get('tracks', [])}
@@ -216,7 +231,7 @@ def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None 
         bounds = [i * bar for i in range(max(1, round(end / bar)) + 1)]
         bounds[-1] = end
     return StemRenderPlan(logical, choices, cfg, metadata.get('tuning', {}), bounds,
-                          max(end, float(bounds[-1])), float(cfg['render'].get('release_tail_sec', 0.25)),
+                          max(end, float(bounds[-1]), configured_end), tail,
                           hashlib.sha256(payload).hexdigest())
 
 
@@ -238,6 +253,7 @@ def render_role_stems(
     logical, cfg = plan.stems, plan.config
     sr = int(cfg.get('render', {}).get('sample_rate', 48000))
     peak_dbfs = _peak_dbfs(cfg)
+    frames = render_frames(sr, plan.duration_sec, plan.release_tail_sec)
     rows: list[dict[str, Any]] = []
     roles: dict[str, list[str]] = {}
     for stem in logical:
@@ -265,8 +281,9 @@ def render_role_stems(
                                         plan.duration_sec, plan.release_tail_sec, selected.soundfont, cfg)
                 render_stem(request, selected)
                 waves.append(wav_path)
-            render_click(bounds, sample_rate=sr, output_path=staging / GENERATED['click'], peak_dbfs=peak_dbfs)
-            rough_mix(waves, output_path=staging / GENERATED['rough_mix'], peak_dbfs=peak_dbfs)
+            render_click(bounds, sample_rate=sr, output_path=staging / GENERATED['click'],
+                         peak_dbfs=peak_dbfs, frames=frames)
+            rough_mix(waves, output_path=staging / GENERATED['rough_mix'], peak=float(cfg['render']['mix_peak']))
             write_bar_boundary_table(bounds, output_path=staging / GENERATED['bar_boundaries'])
             (staging / GENERATED['role_index']).write_text(json.dumps(
                 {'schema_version': STEM_LAYOUT_VERSION, 'stems': rows, 'roles': roles,

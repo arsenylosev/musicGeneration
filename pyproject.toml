@@ -32,6 +32,11 @@ audio = [
   "soundfile>=0.12.0",
   "numpy",
 ]
+audio-render = [
+  "aimusic[audio]",
+  # LGPL-2.1-or-later; public Synth API. Native library/asset installed separately.
+  "pyfluidsynth==1.3.4",
+]
 audio-bridge = [
   "aimusic[audio]",
   # Pin public main tip with M1–M3 spine; retag v0.1.0 later when local m2a commits push.

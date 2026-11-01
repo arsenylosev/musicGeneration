@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from email import message_from_bytes
+from zipfile import ZipFile
 import shutil
 import subprocess
 import sys
@@ -40,6 +42,12 @@ class TestAudioWheel(unittest.TestCase):
                 "--no-index", "--wheel-dir", str(wheels), str(source))
             built = list(wheels.glob("aimusic-*.whl"))
             self.assertEqual(len(built), 1)
+            with ZipFile(built[0]) as wheel:
+                meta = message_from_bytes(wheel.read('aimusic-0.1.0.dist-info/METADATA'))
+            requirements = meta.get_all('Requires-Dist', [])
+            self.assertEqual([r for r in requirements if ';' not in r], ['numpy', 'mido'])
+            self.assertIn('pyfluidsynth==1.3.4; extra == "audio-render"', requirements)
+            self.assertIn('aimusic[audio]; extra == "audio-render"', requirements)
             run("-I", "-m", "pip", "install", "--no-deps", "--no-index",
                 "--target", str(installed), str(built[0]))
             # Supply only the already-installed YAML dependency, offline. Do not

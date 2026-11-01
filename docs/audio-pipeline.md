@@ -2,7 +2,8 @@
 
 **Status:** M0 landed (RenderPackage contract); M1 PR2 entry spine + M1 PR3
 CI-safe deterministic spine (`from_score`, groove, simple render, orchestrator,
-optional m2a bridge). Fluidsynth and generative stages follow the roadmap.  
+optional m2a bridge). Clean-room FluidSynth dispatch is implemented behind
+`[audio-render]`; native-asset/listening acceptance and generative stages remain open.
 **Canonical design:** sibling repo `midi2audio_generative/AUDIO_PIPELINE_ARCHITECTURE.pdf`
 (*From BeatState to Master*, v0.1). This document is the in-repo product digest.
 
@@ -67,7 +68,8 @@ Native `aimusic.audio` is the default product path
 (``AIMUSIC_AUDIO_BACKEND=native`` or unset). Optional bridge:
 ``AIMUSIC_AUDIO_BACKEND=m2a`` after ``pip install -e ".[audio-bridge]"``
 (pins ``midi2audio-generative@46b3dfe``). Default render backend is ``simple``
-(CI-safe additive synth); fluidsynth deferred.
+(CI-safe additive synth). Optional FluidSynth setup and evidence limits:
+[audio-fluidsynth.md](audio-fluidsynth.md).
 
 ## Determinism, caching, provenance
 

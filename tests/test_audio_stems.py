@@ -75,7 +75,7 @@ class TestRenderRoleStemsDuplicates(unittest.TestCase):
         (via ``render_stem`` with ``instrument_index``) so each piano truly has
         its own audio. The rough_mix written by ``render_role_stems`` must
         equal the sum of those distinct stems — modulo the global peak
-        normalization that both paths apply.
+        attenuation-only 0.95 ceiling that both paths apply.
         """
         import numpy as np
         import pretty_midi as pm
@@ -101,9 +101,7 @@ class TestRenderRoleStemsDuplicates(unittest.TestCase):
                 )
                 truth_paths[f"inst_{idx}"] = p
 
-            # Read ground-truth stems, sum them, then peak-normalize to match
-            # what rough_mix() does internally.
-            from aimusic.audio.render.util import peak_normalize
+            # Independent sum and attenuation-only 0.95 ceiling oracle.
             truth_waves: list[np.ndarray] = []
             sr: int | None = None
             for p in truth_paths.values():
@@ -115,7 +113,7 @@ class TestRenderRoleStemsDuplicates(unittest.TestCase):
             expected = np.zeros(max_len, dtype=np.float64)
             for w in truth_waves:
                 expected[: w.shape[0]] += w
-            expected = peak_normalize(expected, -12.0)
+            expected *= min(1.0, 0.95 / np.max(np.abs(expected)))
 
             # Now exercise the buggy path
             out_dir = tmp / "stems"
@@ -439,7 +437,6 @@ class TestStemNamespace(unittest.TestCase):
         import numpy as np
         import soundfile as sf
         from aimusic.audio.render.stems import render_role_stems
-        from aimusic.audio.render.util import peak_normalize
         names = ['Piano', 'Piano', 'click', 'rough_mix', 'bar_boundaries', '../escape',
                  '/absolute', r'..\escape', 'café', 'cafe', '音色', 'a' * 400, 'role_index']
         with tempfile.TemporaryDirectory() as tmp_s:
@@ -472,7 +469,8 @@ class TestStemNamespace(unittest.TestCase):
             expected = np.zeros(max(len(w) for w in waves))
             for wave in waves:
                 expected[:len(wave)] += wave
-            np.testing.assert_allclose(sf.read(outputs['rough_mix'])[0], peak_normalize(expected, -12), atol=1e-7)
+            expected *= min(1.0, 0.95 / np.max(np.abs(expected)))
+            np.testing.assert_allclose(sf.read(outputs['rough_mix'])[0], expected, atol=1e-7)
             self.assertEqual(midi_path.read_bytes(), source_bytes)
             second = render_role_stems(midi_path, output_dir=tmp / 'repeat')
             self.assertEqual(set(outputs), set(second))

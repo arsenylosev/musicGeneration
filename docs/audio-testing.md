@@ -12,7 +12,7 @@ From `AUDIO_PIPELINE_ARCHITECTURE.pdf` §§8–9.
    cache, safety, and mocked-renderer tests with the CI-safe `simple` backend.
    This lane requires no FluidSynth installation, SoundFont, GPU, credentials,
    or network service.
-3. **Real FluidSynth (explicit opt-in):** set
+3. **Real FluidSynth (planned explicit opt-in; 7.4 not implemented):** set
    `AIMUSIC_RUN_FLUIDSYNTH_TESTS=1` and provide the approved SoundFont path and
    SHA-256. Once explicitly selected, missing FluidSynth bindings/native
    library/SoundFont are setup failures, not skips. This lane records native
@@ -170,6 +170,81 @@ Recorded C5 verification (2026-11-01, existing Python 3.12.12 audio/dev venv):
 
 No native FluidSynth lane, SoundFont, audio-f0 certification or human listening
 acceptance is claimed by C5. Only tasks 6.1–6.4 are completed in this checkpoint.
+
+## Clean-room FluidSynth / aligned-mix checkpoint C6 partial
+
+[Provenance, public API sources, licensing and Windows/Linux setup](audio-fluidsynth.md)
+cover **7.1–7.3 only**. Bindings are optional `pyfluidsynth==1.3.4`; wheel metadata
+checks core requirements remain only `numpy` and `mido`. No pinned-repository
+adapter/tests source was copied.
+
+Recorded on 2026-11-01 in the existing Python 3.12.12 audio/dev environment:
+
+```bash
+python -m pytest tests/test_audio_fluidsynth.py tests/test_audio_mix.py tests/test_audio_stems.py tests/test_audio_wheel.py tests/test_audio_registry.py -q
+python -m pytest tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q
+python -m unittest discover -s tests -p 'test_*.py'
+flake8 aimusic tests ui.py
+mypy aimusic tests ui.py
+openspec validate deliver-midi2audio-audible-demo --strict
+```
+
+- Focused renderer/mix/stems/wheel/registry: **49 passed**, 85 subtests.
+- Config regression after the default-comment update: **23 passed**, 27 subtests.
+- Lightweight audio + architecture + RenderPackage: **239 passed**, 290 subtests,
+  **1 skipped** optional bridge integration; retained non-track-0 metadata warning.
+- Full unittest: **572 run**, **9 skipped**, no failures (61.884 s).
+- Lint/type checks, strict OpenSpec validation and `git diff --check`: clean.
+- TDD red runs exposed the missing adapter, unequal frames, wrong mix gain and
+  overly strict note-off status handling. An inverted peak-gain condition was
+  killed by mix tests and restored before the green runs.
+- Mocked native calls check tempo changes, absolute fractional-tick sample
+  positions, same-tick order, banks/programs/drums, sustain/RPN/bends, fixed tail,
+  rejected events/settings, cleanup and no realtime driver. They are **not**
+  native sound, pitch, latency or instrument-quality evidence.
+
+### Generation → simple WAV smoke
+
+Reproduce with a fresh local `$SCRATCH` directory (never commit its outputs):
+
+```bash
+python -m aimusic.app.cli generate --seed 11 --beats 4 --out "$SCRATCH/generated"
+python - "$SCRATCH" <<'PY'
+import sys
+from pathlib import Path
+from aimusic.audio.config import load_audio_config
+from aimusic.audio.from_score import from_score
+from aimusic.audio.orchestrator import Orchestrator
+root = Path(sys.argv[1])
+context = from_score(next((root / 'generated').glob('run_*')))
+for name in ('cold', 'warm'):
+    runner = Orchestrator(load_audio_config('preview').to_dict(), root / 'cache')
+    runner.run(context, output_dir=root / name)
+    print(name, runner.cache_hits, runner.cache_misses)
+PY
+```
+
+Measured on macOS arm64, mido 1.3.3, NumPy 2.5.4, PrettyMIDI 0.2.11.post0,
+SoundFile 0.14.0. Four stems, click and mix are all **48 kHz / 108000 frames**
+(2.0-second horizon + 0.25-second fixed tail), finite and peak <=0.95.
+
+| Signal | Active RMS (0.1–0.8 s) | Peak |
+|---|---:|---:|
+| Bass | 0.104148 | 0.251189 |
+| Comping | 0.039570 | 0.251189 |
+| Drums (simple preview, not native percussion) | 0.044356 | 0.251189 |
+| Lead | 0.092371 | 0.251189 |
+| Rough mix | 0.151110 | 0.719104 |
+
+Whole-mix RMS: **0.150934**. Cold expression/render missed; warm expression/render
+hit and all six WAVs were byte-identical. Every effective renderer was `simple`,
+with no fallback. This also exercises package reconciliation and publication;
+unit tests independently assert click exclusion and exact-zero silent stems.
+
+The local detailed report is `c6-smoke.KwN21L/report.json` under the session's
+approved scratch directory. Native FluidSynth/SoundFont rendering, the eight-bar
+native benchmark, controlled audio tuning and human listening were **not run**.
+Tasks **7.4/7.5 remain unchecked**; MUS-34 completion is not proposed.
 
 ## Risks
 

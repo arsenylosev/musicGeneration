@@ -9,6 +9,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from functools import partial
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ import soundfile as sf
 from aimusic.audio.config import normalize_routing
 from aimusic.audio.midi_events import MidiEvents
 from aimusic.audio.render import simple_r
+from aimusic.audio.render.util import limit_peak, render_frames
 
 
 class MissingRendererResource(RuntimeError):
@@ -62,10 +64,11 @@ class RendererBackend:
     code_digest: str
     native_versions: tuple[tuple[str, str], ...]
     render: Callable[[RenderRequest], Path]
+    settings: tuple[tuple[str, Any], ...] = ()
 
     def identity(self) -> dict[str, Any]:
         return {'name': self.name, 'version': self.version, 'capabilities': asdict(self.capabilities),
-                'code_digest': self.code_digest, 'native_versions': self.native_versions}
+                'code_digest': self.code_digest, 'native_versions': self.native_versions, 'settings': self.settings}
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,9 @@ class RenderResult:
     native_versions: tuple[tuple[str, str], ...]
     soundfont_sha256: str | None
     midi_sha256: str
+    render_settings: dict[str, Any]
+    frames: int
+    peak_gain: float
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), 'output_path': self.output_path.name}
@@ -111,6 +117,7 @@ def render_request(request: RenderRequest, selected: ResolvedRenderer) -> Render
         raise UnsupportedTuning('tuning changed after renderer resolution')
     if request.soundfont != selected.soundfont:
         raise ValueError('SoundFont request differs from resolved asset')
+    frames = render_frames(request.sample_rate, request.duration_sec, request.release_tail_sec)
     selected.verify_asset()
     midi_sha256 = file_digest(request.midi_path)
     path = selected.backend.render(request)  # No runtime fallback, even for a missing-resource error.
@@ -122,29 +129,46 @@ def render_request(request: RenderRequest, selected: ResolvedRenderer) -> Render
     samples, rate = sf.read(path, always_2d=True)
     if rate != request.sample_rate or not samples.size or not np.isfinite(samples).all():
         raise ValueError('renderer output has invalid sample rate, empty or nonfinite samples')
+    if len(samples) > frames:
+        raise ValueError('renderer output exceeds the common horizon; refusing to truncate')
+    if len(samples) < frames:
+        samples = np.pad(samples, ((0, frames - len(samples)), (0, 0)))
+    ceiling = float(request.config.get('render', {}).get('mix_peak', 0.95))
+    samples, gain = limit_peak(samples, ceiling)
+    sf.write(path, samples, rate, subtype='FLOAT')
     backend = selected.backend
     result = RenderResult(path, file_digest(path), selected.requested_backend, backend.name,
                           selected.fallback_reason, backend.version, backend.capabilities,
-                          backend.code_digest, backend.native_versions, selected.soundfont_sha256, midi_sha256)
+                          backend.code_digest, backend.native_versions, selected.soundfont_sha256, midi_sha256,
+                          {**dict(backend.settings), 'synth.sample-rate': request.sample_rate,
+                           'duration_sec': request.duration_sec, 'release_tail_sec': request.release_tail_sec,
+                           'peak_ceiling': ceiling}, len(samples), gain)
     Path(str(path) + '.json').write_text(json.dumps(result.to_dict(), sort_keys=True, indent=2), encoding='utf-8')
     return result
 
 
 def _simple(request: RenderRequest) -> Path:
     return simple_r.render_stem(request.midi_path, output_path=request.output_path,
-                                sample_rate=request.sample_rate, config=request.config)
+                                sample_rate=request.sample_rate, config=request.config,
+                                duration_sec=request.duration_sec, release_tail_sec=request.release_tail_sec)
 
 
 def _simple_backend(asset: Path | None) -> RendererBackend:
-    return RendererBackend('simple', '2', RendererCapabilities(), file_digest(Path(simple_r.__file__)),
+    return RendererBackend('simple', '3', RendererCapabilities(), file_digest(Path(simple_r.__file__)),
                            (('numpy', np.__version__), ('pretty_midi', version('pretty_midi')),
                             ('soundfile', sf.__version__), ('libsndfile', sf.__libsndfile_version__)), _simple)
 
 
 def _fluidsynth_backend(asset: Path | None) -> RendererBackend:
-    # No native adapter is implemented/claimed by this contract milestone.
-    raise MissingRendererResource('FluidSynth adapter unavailable; use direct-12 preview or install the '
-                                  'future optional renderer, native library and a license-approved SoundFont')
+    if asset is None or not asset.is_file():
+        raise MissingRendererResource('FluidSynth requires a local license-approved SoundFont; '
+                                      'set paths.soundfont or AIMUSIC_SOUNDFONT (docs/audio-fluidsynth.md)')
+    from aimusic.audio.render import fluidsynth_r
+    binding = fluidsynth_r.load_binding()
+    return RendererBackend('fluidsynth', '1', RendererCapabilities(instrument_fidelity=True),
+                           file_digest(Path(fluidsynth_r.__file__)), fluidsynth_r.versions(binding),
+                           partial(fluidsynth_r.render, binding=binding),
+                           tuple(sorted({**fluidsynth_r.SETTINGS, 'block_frames': fluidsynth_r.BLOCK_FRAMES}.items())))
 
 
 _BACKENDS: dict[str, Callable[[Path | None], RendererBackend]] = {
