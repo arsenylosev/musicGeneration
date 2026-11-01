@@ -86,6 +86,7 @@ so DSP never blocks on symbolic changes. The contract is the decoupler.
 
 ## Related docs
 
+- [audio-stems.md](audio-stems.md) — logical stems, safe filenames and role index
 - [render-package-contract.md](render-package-contract.md)
 - [audio-roadmap.md](audio-roadmap.md) — M0–M6 quarter plan
 - [audio-stages.md](audio-stages.md) — STAGE 1–6 design

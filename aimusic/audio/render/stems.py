@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
+import tempfile
+import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +16,47 @@ import numpy as np
 import pretty_midi as pm
 import soundfile as sf
 
+from aimusic.audio.analysis.from_midi import _infer_role
+from aimusic.audio.midi_events import MidiEvents, MidiEventError
 from aimusic.audio.render.simple_r import _peak_dbfs, render_stem
 from aimusic.audio.render.util import as_mono, peak_normalize
+
+
+@dataclass(frozen=True)
+class SourceStem:
+    source_track_index: int
+    name: str
+    role: str
+    role_source: str
+    channels: tuple[int, ...]
+    midi: MidiEvents
+
+
+def isolate_source_stems(source: MidiEvents, *, analysis: dict[str, Any] | None = None) -> tuple[SourceStem, ...]:
+    """Use source identities, never PrettyMIDI instrument indices, for stems."""
+    declarations = {}
+    for row in (analysis or {}).get('tracks', []):
+        index = row.get('source_track_index')
+        if index is None:
+            if row.get('role_source') == 'structure.json':
+                raise MidiEventError('Authoritative role requires source_track_index; reconcile first')
+            continue  # Legacy inferred PrettyMIDI indices are not SMF identities.
+        if not isinstance(index, int) or index in declarations:
+            raise MidiEventError('Invalid/duplicate source_track_index in stem roles')
+        declarations[index] = row
+    result = []
+    for index, midi in source.isolate_tracks(tuple(declarations)).items():
+        name = next((e.message.name for e in source.events
+                     if e.track == index and e.message.type == 'track_name'), '')
+        channels = tuple(sorted({e.channel for e in source.events if e.track == index and e.channel is not None}))
+        program = next((e.message.program for e in source.events
+                        if e.channel in channels and e.message.type == 'program_change'), 0)
+        inferred = _infer_role(pm.Instrument(program=program, is_drum=channels == (9,), name=name))
+        row = declarations.get(index, {})
+        role = str(row.get('role') or inferred)
+        result.append(SourceStem(index, name, 'comping' if role == 'comp' else role,
+                                 str(row.get('role_source', 'inferred')), channels, midi))
+    return tuple(result)
 
 
 def render_click(
@@ -80,6 +125,71 @@ def write_bar_boundary_table(
     return out
 
 
+# Layout revision invalidates old name-keyed stem caches, not renderer policy.
+STEM_LAYOUT_VERSION = 2
+GENERATED = {'click': 'click.wav', 'rough_mix': 'rough_mix.wav',
+             'bar_boundaries': 'bar_boundaries.json', 'role_index': 'role_index.json'}
+
+
+def _stem_id(stem: SourceStem) -> str:
+    label = unicodedata.normalize('NFKD', stem.name or stem.role).encode('ascii', 'ignore').decode()
+    slug = re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')[:48] or 'stem'
+    return f'track_{stem.source_track_index:04d}_{slug}'
+
+
+def _output_root(output: Path | str) -> Path:
+    path = Path(output)
+    if path.is_symlink():
+        raise ValueError(f'Stem output root is a symlink: {path}')
+    path.mkdir(parents=True, exist_ok=True)
+    return path.resolve(strict=True)
+
+
+def _check_new_files(root: Path, names: list[str]) -> None:
+    for name in names:
+        target = root / name
+        if Path(name).name != name or target.resolve().parent != root:
+            raise ValueError(f'Stem output violates containment: {target}')
+        if target.exists() or target.is_symlink():
+            raise FileExistsError(f'Stem output already exists: {target}')
+
+
+def _publish_staged(staging: Path, root: Path, names: list[str]) -> None:
+    """Link complete files exclusively; never truncate/follow a destination.
+
+    A pinned directory descriptor protects the publication root. This is not
+    crash-atomic as a set; concurrent writers to the same output are unsupported.
+    """
+    _check_new_files(root, names)
+    parent_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    published = []
+    try:
+        for name in names:
+            os.link(staging / name, name, dst_dir_fd=parent_fd, follow_symlinks=False)
+            published.append(name)
+    except BaseException:
+        for name in reversed(published):
+            os.unlink(name, dir_fd=parent_fd)
+        raise
+    finally:
+        os.close(parent_fd)
+
+
+def copy_stem_artifacts(source: Path, output: Path) -> None:
+    """Restore a stem directory without deleting or overwriting user files."""
+    files = sorted(p for p in source.iterdir() if p.name != '_complete')
+    if any(p.is_symlink() or not p.is_file() for p in files):
+        raise ValueError('Stem artifacts must be regular files, not symlinks/directories')
+    root = _output_root(output)
+    names = [p.name for p in files]
+    _check_new_files(root, names)
+    with tempfile.TemporaryDirectory(prefix='.stems-', dir=root) as tmp:
+        staging = Path(tmp)
+        for path in files:
+            shutil.copyfile(path, staging / path.name)
+        _publish_staged(staging, root, names)
+
+
 def render_role_stems(
     midi_path: Path | str,
     *,
@@ -87,65 +197,60 @@ def render_role_stems(
     config: dict[str, Any] | None = None,
     analysis: dict[str, Any] | None = None,
 ) -> dict[str, Path]:
-    """Render one WAV per instrument/role; also click, mix, bar table."""
-    path = Path(midi_path)
-    out_dir = Path(output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    """Render each logical source once; publish safe IDs plus a role index.
+
+    Preserved event MIDI is the renderer input. Simple still provides only
+    integer-pitch sine previews, not instrument/controller/tuning certification.
+    """
+    source = MidiEvents.load(midi_path)
+    logical = isolate_source_stems(source, analysis=analysis)
+    if not logical:
+        raise ValueError('no source stems to render')
     cfg = config or {}
-    sr = int(cfg.get("render", {}).get("sample_rate", 48000))
+    sr = int(cfg.get('render', {}).get('sample_rate', 48000))
     peak_dbfs = _peak_dbfs(cfg)
+    rows: list[dict[str, Any]] = []
+    roles: dict[str, list[str]] = {}
+    for stem in logical:
+        key = _stem_id(stem)
+        rows.append({'id': key, 'source_track_index': stem.source_track_index,
+                     'name': stem.name, 'role': stem.role, 'role_source': stem.role_source,
+                     'channels': list(stem.channels), 'note_count': len(stem.midi.notes),
+                     'midi': f'{key}.mid', 'wav': f'{key}.wav'})
+        roles.setdefault(stem.role, []).append(key)
+    names = [row['id'] + suffix for row in rows for suffix in ('.mid', '.wav', '.wav.json')]
+    names.extend(GENERATED.values())
+    root = _output_root(output_dir)
+    _check_new_files(root, names)
 
-    midi = pm.PrettyMIDI(str(path))
-    stems: dict[str, Path] = {}
-    for idx, inst in enumerate(midi.instruments):
-        role = (inst.name or f"track_{idx}").strip().lower().replace(" ", "_") or f"track_{idx}"
-        # Compute the unique key BEFORE picking a filename so the on-disk name
-        # matches the dict key. Without this, two instruments sharing a role
-        # name (e.g. two "Piano" tracks) would both write to ``{role}.wav``
-        # (silently overwriting the first render) and the dict key collision
-        # logic would still point at the same path — so ``rough_mix`` would
-        # then double-add the second instrument into the mix.
-        key = role
-        n = 2
-        while key in stems:
-            key = f"{role}_{n}"
-            n += 1
-        stem_path = out_dir / f"{key}.wav"
-        render_stem(
-            path,
-            output_path=stem_path,
-            config=cfg,
-            instrument_index=idx,
-            sample_rate=sr,
-        )
-        stems[key] = stem_path
-
-    bounds = (analysis or {}).get("bar_boundaries_sec")
+    bounds = (analysis or {}).get('bar_boundaries_sec')
     if not bounds:
-        end = float(midi.get_end_time())
-        beat = 0.5
-        if hasattr(midi, "get_tempo_changes"):
-            _t, tempos = midi.get_tempo_changes()
-            if len(tempos):
-                beat = 60.0 / float(tempos[0])
-        bar = beat * 4.0
-        n_bars = max(1, round(end / bar))
-        bounds = [i * bar for i in range(n_bars + 1)]
+        end = float(source.tempo_map.seconds(max(e.tick for e in source.events)))
+        tempo = next((value for tick, value in source.tempo_map.changes if tick == 0), 500000)
+        bar = 4 * tempo / 1000000
+        bounds = [i * bar for i in range(max(1, round(end / bar)) + 1)]
         bounds[-1] = end
 
-    click_path = out_dir / "click.wav"
-    render_click(bounds, sample_rate=sr, output_path=click_path, peak_dbfs=peak_dbfs)
-    stems["click"] = click_path
-
-    mix_path = out_dir / "rough_mix.wav"
-    rough_mix(
-        [p for k, p in stems.items() if k != "click"],
-        output_path=mix_path,
-        peak_dbfs=peak_dbfs,
-    )
-    stems["rough_mix"] = mix_path
-
-    table_path = out_dir / "bar_boundaries.json"
-    write_bar_boundary_table(bounds, output_path=table_path)
-    stems["bar_boundaries"] = table_path
-    return stems
+    with tempfile.TemporaryDirectory(prefix='.stems-', dir=root) as tmp:
+        staging = Path(tmp)
+        waves: list[Path | str] = []
+        for stem, row in zip(logical, rows):
+            midi_path = staging / row['midi']
+            stem.midi.save(midi_path)
+            wav_path = staging / row['wav']
+            render_stem(midi_path, output_path=wav_path, config=cfg, sample_rate=sr)
+            # Relative artifact references survive cache-directory copies.
+            sidecar = Path(str(wav_path) + '.json')
+            manifest = json.loads(sidecar.read_text(encoding='utf-8'))
+            manifest['output_path'] = row['wav']
+            sidecar.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding='utf-8')
+            waves.append(wav_path)
+        render_click(bounds, sample_rate=sr, output_path=staging / GENERATED['click'], peak_dbfs=peak_dbfs)
+        rough_mix(waves, output_path=staging / GENERATED['rough_mix'], peak_dbfs=peak_dbfs)
+        write_bar_boundary_table(bounds, output_path=staging / GENERATED['bar_boundaries'])
+        (staging / GENERATED['role_index']).write_text(json.dumps(
+            {'schema_version': STEM_LAYOUT_VERSION, 'stems': rows, 'roles': roles,
+             'generated': GENERATED}, indent=2, sort_keys=True), encoding='utf-8')
+        _publish_staged(staging, root, names)
+    return {**{row['id']: Path(output_dir) / row['wav'] for row in rows},
+            **{key: Path(output_dir) / name for key, name in GENERATED.items()}}

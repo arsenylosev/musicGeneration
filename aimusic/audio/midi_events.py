@@ -218,6 +218,55 @@ class MidiEvents:
     def save(self, path: Path | str) -> None:
         self.to_mido().save(str(path))
 
+    def isolate_tracks(self, declared_tracks: tuple[int, ...] = ()) -> dict[int, MidiEvents]:
+        """Project complete channel streams; keep global events and SMF ordering.
+
+        Note-bearing tracks own their channels. A conductor/setup-only track may
+        supply their state, but another logical instrument may not. Original SMF
+        track slots (including now-empty ones) retain equal-tick merge ordering.
+        """
+        tracks = {n.track for n in self.notes} | set(declared_tracks)
+        if any(not 0 <= t < self.track_count for t in tracks):
+            raise MidiEventError('Invalid declared source track index')
+        note_channels = {n.channel for n in self.notes}
+        local: dict[int, set[int]] = {t: set() for t in range(self.track_count)}
+        names, conductors = set(), set()
+        for event in self.events:
+            if event.channel is not None:
+                local[event.track].add(event.channel)
+            elif event.message.type == 'track_name':
+                names.add(event.track)
+            elif event.message.type in ('set_tempo', 'time_signature', 'key_signature', 'sysex'):
+                conductors.add(event.track)
+        # Preserve silent instruments too; setup-only tracks for other voices
+        # are not instruments. Explicit planner identities take precedence.
+        tracks |= {t for t, channels in local.items() if t not in conductors and
+                   (channels - note_channels or (t in names and not channels))}
+        owners: dict[int, int] = {}
+        for track in sorted(tracks):
+            for channel in sorted(local[track]):
+                if channel in owners and owners[channel] != track:
+                    raise MidiEventError(f'Conflicting channel ownership: track {track} and '
+                                         f'track {owners[channel]}, channel {channel}')
+                owners[channel] = track
+        result = {}
+        for track in sorted(tracks):
+            channels = local[track]
+            # Unowned setup channels are conductor state too (no notes can be
+            # duplicated); retain them rather than silently discarding setup.
+            events = tuple(e for e in self.events if e.channel not in owners or e.channel in channels)
+            positions = {(e.track, e.order): i for i, e in enumerate(events)}
+            notes = tuple(replace(n, on=positions[(self.events[n.on].track, self.events[n.on].order)],
+                                  off=positions[(self.events[n.off].track, self.events[n.off].order)])
+                          for n in self.notes if n.track == track)
+            # Note IDs index this projection's tuple; source identity remains
+            # in track/order. Do not leave sparse IDs in a valid MidiEvents.
+            identities = {n.id: i for i, n in enumerate(notes)}
+            notes = tuple(replace(n, id=identities[n.id]) for n in notes)
+            events = tuple(replace(e, note_ids=tuple(identities[i] for i in e.note_ids)) for e in events)
+            result[track] = replace(self, events=events, notes=notes)
+        return result
+
 
 def _associate_expression(events: list[MidiEvent], notes: tuple[MidiNote, ...]) -> list[MidiEvent]:
     """Sweep active/held voices and same-tick setups, rather than scan all notes."""

@@ -165,7 +165,7 @@ class Orchestrator:
 
         from aimusic.audio.analysis.from_midi import analyze_midi
         from aimusic.audio.groove.apply import apply_groove
-        from aimusic.audio.render.stems import render_role_stems
+        from aimusic.audio.render.stems import STEM_LAYOUT_VERSION, copy_stem_artifacts, render_role_stems
 
         analysis_doc: dict[str, Any] | None = None
         expressive_midi = midi_path
@@ -234,6 +234,7 @@ class Orchestrator:
         if stages.get("render", True):
             render_cfg = self.config.get("render", {})
             render_subset = {
+                "stem_layout_version": STEM_LAYOUT_VERSION,
                 "package_hash": context.package.content_hash if context else None,
                 "sample_rate": render_cfg.get("sample_rate"),
                 "peak_dbfs": render_cfg.get("peak_dbfs", render_cfg.get("headroom_dbfs")),
@@ -247,9 +248,7 @@ class Orchestrator:
             marker = cached_dir / "_complete"
             if marker.is_file():
                 self.cache_hits["render"] = self.cache_hits.get("render", 0) + 1
-                if stems_dir.exists():
-                    shutil.rmtree(stems_dir)
-                shutil.copytree(cached_dir, stems_dir, ignore=lambda *_: {"_complete"})
+                copy_stem_artifacts(cached_dir, stems_dir)
             else:
                 self.cache_misses["render"] = self.cache_misses.get("render", 0) + 1
                 if cached_dir.exists():
@@ -262,9 +261,7 @@ class Orchestrator:
                     analysis=analysis_doc,
                 )
                 marker.write_text("ok", encoding="utf-8")
-                if stems_dir.exists():
-                    shutil.rmtree(stems_dir)
-                shutil.copytree(cached_dir, stems_dir, ignore=lambda *_: {"_complete"})
+                copy_stem_artifacts(cached_dir, stems_dir)
 
         return out
 

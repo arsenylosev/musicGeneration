@@ -94,6 +94,54 @@ These are deterministic regression signals, not synth throughput or audio-qualit
 claims. Work still scales with actual simultaneous voice/event intersections;
 unbounded sustained polyphony is not promised linear cost.
 
+## Logical-stem review gate A (C4)
+
+[Layout and migration](audio-stems.md) documents source IDs, role lookup,
+reserved artifacts and refusal of existing output paths. Review evidence is
+asset-free and concerns **MIDI events**, not native listening or audio f0:
+
+| Regression evidence (`tests/test_audio_stems.py`) | Assertion |
+|---|---|
+| Multi-channel logical track plus drums | Two stems, all member-channel notes retained; authoritative `comp` → `comping`, independent of a misleading name |
+| Serialized isolated MIDI | Exact absolute ticks, source-track slots, event payloads and global streams; banks/programs, RPN range, bends, sustain, aftertouch and opaque MTS payload retained |
+| Sustain / tempo | Both held notes release at tick 700; tempo/meter changes at tick 480 unchanged; drum keys remain on channel 9 |
+| Independent channel-state oracle | Full before/after program, bank, pedal and pitch-offset trajectories equal (12.5-semitone RPN range included) |
+| Three 19-EDO tones through retiming + serialization/isolation | Correct note identities/counts; each reconstructed onset within **1 cent** of independent EDO targets |
+| Cross-track ownership | Conflicting notes/programs/bends/CCs fail instead of duplicating or silently changing channels |
+| Artifact names and mix | 13 duplicate/reserved/Unicode/separator/traversal/long labels remain unique and indexed; mix equals normalized sum of every source WAV |
+| Pre-existing artifacts | Seven output kinds × file/directory/inside/outside/dangling-link cases refused without modification; symlink root refused |
+| Integration | Silent stem retained; all MPE members feed simple preview; cold/warm cache copies retain index and unrelated files, refuse collisions |
+
+Reproduce with the project's lightweight audio/dev environment:
+
+```bash
+python -m pytest tests/test_audio_stems.py -q
+python -m pytest tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q
+python -m unittest discover -s tests -p 'test_*.py'
+flake8 aimusic tests ui.py
+mypy aimusic tests ui.py
+```
+
+Recorded on 2026-11-01 with Python 3.12.12, mido 1.3.3, NumPy 2.5.4,
+PrettyMIDI 0.2.11.post0 and SoundFile 0.14.0:
+
+- Focused stems: **18 passed**, 44 subtests.
+- Lightweight audio + architecture + RenderPackage: **173 passed**, 172 subtests;
+  **1 skipped** optional `audio-bridge` test (not installed).
+- Full unittest discovery: **506 run**, **9 skipped**, no failures (60.840 s).
+- `flake8 aimusic tests ui.py`: clean; `mypy aimusic tests ui.py`: no issues in
+  115 files; strict OpenSpec validation and `git diff --check`: clean.
+- One retained PrettyMIDI warning identifies the deliberate non-track-0 key
+  signature fixture; exact global-event preservation is separately asserted.
+- TDD red runs reproduced missing isolation, unsafe/reserved names and overwrite
+  behavior before fixes. An inverted ownership guard was killed by regression
+  tests; the guard was restored before final verification.
+
+This evidence is presented for human review of event fidelity (task 5.3). It is
+**not** human approval, native instrument recognizability, monophonic/polyphonic
+f0 measurement, CLAP/FAD scoring or a mastered-audio quality claim. Native asset
+selection, listening gates and C5+ implementation remain outstanding.
+
 ## Risks
 
 | Risk | Mitigation |

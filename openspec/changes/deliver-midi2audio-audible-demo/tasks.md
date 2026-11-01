@@ -53,9 +53,9 @@ Suggested message: `fix(audio): isolate logical stems without event or artifact 
 
 Files: `audio/render/stems.py`, `audio/midi_events.py`, stem tests/fixtures and output-layout docs.
 
-- [ ] 5.1 Isolate source-track stems with conductor events and complete channel setup, consolidating MPE member channels and retaining authoritative roles; verify `tests/test_audio_stems.py` compares programs, drum semantics, sustain, tempo and pitch-state trajectories before/after extraction and rejects conflicting cross-track channel ownership.
-- [ ] 5.2 Introduce stable identity-based safe names and a role index; verify duplicate, reserved `click`/`rough_mix`/`bar_boundaries`, Unicode, separators, traversal and pre-existing symlink cases cannot overwrite or escape output roots, and every source stem remains included in the mix.
-- [ ] 5.3 Document the stem naming compatibility change and generated-artifact namespace; run all lightweight audio tests plus architecture checks and present event-fidelity evidence for human review before committing C4 and proceeding to the native-render stage.
+- [x] 5.1 Isolate source-track stems with conductor events and complete channel setup, consolidating MPE member channels and retaining authoritative roles; verify `tests/test_audio_stems.py` compares programs, drum semantics, sustain, tempo and pitch-state trajectories before/after extraction and rejects conflicting cross-track channel ownership.
+- [x] 5.2 Introduce stable identity-based safe names and a role index; verify duplicate, reserved `click`/`rough_mix`/`bar_boundaries`, Unicode, separators, traversal and pre-existing symlink cases cannot overwrite or escape output roots, and every source stem remains included in the mix.
+- [x] 5.3 Document the stem naming compatibility change and generated-artifact namespace; run all lightweight audio tests plus architecture checks and present event-fidelity evidence for human review before committing C4 and proceeding to the native-render stage.
 
 ## 6. Registry, fallback and complete cache identity — commit C5
 
