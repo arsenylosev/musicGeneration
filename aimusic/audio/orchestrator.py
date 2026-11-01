@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import shutil
 import platform
+import tempfile
+from contextlib import ExitStack
 from copy import deepcopy
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -17,9 +19,9 @@ from typing import Any
 
 import yaml
 
-from aimusic.audio.from_score import AudioPackageContext, from_score, validate_package
+from aimusic.audio.from_score import AudioPackageContext, ValidationReport, from_score, validate_package
 from aimusic.audio.manifest import content_hash_files
-from aimusic.audio.cache import cached_stage
+from aimusic.audio.cache import MANIFEST, cached_stage, fingerprint, restored_entry
 from aimusic.audio.render.registry import file_digest
 from aimusic.audio.render.stem_publication import pin_output
 from aimusic.core.render_package import ContractViolation
@@ -93,23 +95,21 @@ class Orchestrator:
     def _copy_stage_artifacts(
         cached: Path, dest: Path, *sidecar_suffixes: str
     ) -> None:
-        """Copy a stage's primary artifact plus every existing sidecar.
-
-        Stages emit a primary file (e.g. ``<stem>.analysis.json``,
-        ``<stem>.expressive.mid``) and one or more sidecars (e.g.
-        ``<stem>.analysis.json.json`` for the provenance manifest,
-        ``<stem>.expressive.mid.diff.json`` for the note-diff report).
-        Both warm and cold cache paths must reproduce the same set of
-        files in the user output directory so downstream consumers (and
-        manifest reconciliation) see a complete artifact set regardless
-        of whether the stage ran or hit the cache.
-        """
-        shutil.copy2(cached, dest)
+        """Exclusively publish the primary file and present sidecars as a bundle."""
+        sources = {dest.name: cached}
         for suffix in sidecar_suffixes:
-            cached_sidecar = Path(str(cached) + suffix)
-            dest_sidecar = Path(str(dest) + suffix)
-            if cached_sidecar.is_file():
-                shutil.copy2(cached_sidecar, dest_sidecar)
+            source = Path(str(cached) + suffix)
+            if source.is_symlink():
+                raise ValueError('stage artifacts must not be symlinks')
+            if source.is_file():
+                sources[dest.name + suffix] = source
+        with pin_output(dest.parent) as root:
+            root.check_new_files(list(sources))
+            with tempfile.TemporaryDirectory(prefix='.stage-') as tmp:
+                staging = Path(tmp)
+                for name, source in sources.items():
+                    shutil.copyfile(source, staging / name)
+                root.publish(staging, list(sources))
 
     def _cached_stage(self, stage: str, identity: dict[str, Any], names: list[str],
                       produce: Callable[[Path], Any]) -> Path:
@@ -172,14 +172,48 @@ class Orchestrator:
             if output_dir
             else Path(self.config.get("paths", {}).get("output_dir", "outputs/audio"))
         )
-        out.mkdir(parents=True, exist_ok=True)
+        from aimusic.audio.midi_events import MidiEvents
+        from aimusic.audio.render.stems import isolate_source_stems, stem_artifact_names
+        stages = self.config.get('stages', {})
+        names = []
+        if context:
+            names += [f'{midi_path.stem}.reconciliation.json', f'{midi_path.stem}.analysis.json']
+        elif stages.get('analysis', True):
+            names += [f'{midi_path.stem}.analysis.json', f'{midi_path.stem}.analysis.json.json']
+        if stages.get('expressivization', True):
+            names += [f'{midi_path.stem}.expressive.mid{suffix}' for suffix in ('', '.diff.json', '.json')]
+        if stages.get('render', True):
+            names += ['render.json']
+        with ExitStack() as stack:
+            root = stack.enter_context(pin_output(out))
+            root.check_new_files(names)
+            stem_root = None
+            if stages.get('render', True):
+                metadata = {'tracks': list(validation.reconciliation.tracks)} if validation else None
+                logical = isolate_source_stems(MidiEvents.load(midi_path), analysis=metadata)
+                stem_names = stem_artifact_names(logical) + ['render.json', MANIFEST]
+                stem_root = stack.enter_context(pin_output(out / 'stems'))
+                stem_root.check_new_files(stem_names)
+            scratch = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='.audio-run-')))
+            self._run_stages(midi_path, scratch, context, validation)
+            if stem_root:
+                stem_names = sorted(p.name for p in (scratch / 'stems').iterdir() if p.name != MANIFEST) + [MANIFEST]
+                stem_root.check_new_files(stem_names)
+            with root.publication(scratch, names):
+                if stem_root:
+                    stem_root.publish(scratch / 'stems', stem_names)
+        return out
+
+    def _run_stages(self, midi_path: Path, out: Path, context: AudioPackageContext | None,
+                    validation: ValidationReport | None) -> None:
+        """Compute/restore privately; only run() may publish into the user tree."""
         stages = self.config.get("stages", {})
         code_version = str(self.config.get("code_version", "0.1.0"))
 
         from aimusic.audio.analysis.from_midi import analyze_midi
         from aimusic.audio.groove.apply import apply_groove
         from aimusic.audio.render.stems import (
-            STEM_LAYOUT_VERSION, copy_stem_artifacts, prepare_stem_render, render_role_stems,
+            STEM_LAYOUT_VERSION, prepare_stem_render, render_role_stems,
         )
 
         code_identity = {str(p.relative_to(Path(__file__).parent)): file_digest(p)
@@ -211,7 +245,8 @@ class Orchestrator:
                                         lambda directory: analyze_midi(midi_path, config=self.config,
                                                                        output_path=directory / 'analysis.json'))
             dest = out / f"{midi_path.stem}.analysis.json"
-            self._copy_stage_artifacts(cached / 'analysis.json', dest, '.json')
+            with restored_entry(cached, fingerprint(identity), ['analysis.json', 'analysis.json.json']) as verified:
+                self._copy_stage_artifacts(verified / 'analysis.json', dest, '.json')
             analysis_doc = json.loads(dest.read_text(encoding='utf-8'))
 
         if stages.get("expressivization", True):
@@ -226,7 +261,8 @@ class Orchestrator:
                                                 output_path=directory / 'expressive.mid',
                                                 config=self.config, light_cleanup=light))
             dest = out / f"{midi_path.stem}.expressive.mid"
-            self._copy_stage_artifacts(cached / 'expressive.mid', dest, '.diff.json', '.json')
+            with restored_entry(cached, fingerprint(identity), names) as verified:
+                self._copy_stage_artifacts(verified / 'expressive.mid', dest, '.diff.json', '.json')
             expressive_midi = dest
 
         if stages.get("render", True):
@@ -259,11 +295,11 @@ class Orchestrator:
             with pin_output(out) as root:
                 root.check_new_files(['render.json'])
                 cached_dir = self._cached_stage('render', render_subset, plan.names + ['render.json'], produce)
-                # Recheck the copied snapshot before publishing it; manifest last.
-                copy_stem_artifacts(cached_dir, out / 'stems', verify_cache=True)
-                root.publish(out / 'stems', ['render.json'])
+                with restored_entry(cached_dir, fingerprint(render_subset), plan.names + ['render.json']) as verified:
+                    with pin_output(out / 'stems') as stem_root:
+                        stem_root.publish(verified, plan.names + ['render.json', MANIFEST])
+                    root.publish(verified, ['render.json'])
 
-        return out
 
 
 def _semantic_analysis(analysis: dict[str, Any] | None) -> dict[str, Any]:

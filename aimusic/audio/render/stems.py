@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import unicodedata
 from copy import deepcopy
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -143,24 +144,28 @@ def _stem_id(stem: SourceStem) -> str:
 
 def copy_stem_artifacts(source: Path, output: Path, *, verify_cache: bool = False) -> None:
     """Restore a stem directory without deleting or overwriting user files."""
-    files = sorted(p for p in source.iterdir() if p.name != '_complete')
+    from aimusic.audio.cache import MANIFEST, restored_entry
+    excluded = {'_complete', MANIFEST} if verify_cache else {'_complete'}
+    files = sorted(p for p in source.iterdir() if p.name not in excluded)
     if any(p.is_symlink() or not p.is_file() for p in files):
         raise ValueError('Stem artifacts must be regular files, not symlinks/directories')
     names = [p.name for p in files]
-    if verify_cache:
-        names.remove('cache_manifest.json')
-        names.append('cache_manifest.json')
+    snapshot = restored_entry(source, source.name, names) if verify_cache else nullcontext(source)
     with pin_output(output) as root:
-        root.check_new_files(names)
-        with tempfile.TemporaryDirectory(prefix='.stems-') as tmp:
-            staging = Path(tmp)
-            for path in files:
-                shutil.copyfile(path, staging / path.name)
+        root.check_new_files(names + ([MANIFEST] if verify_cache else []))
+        with snapshot as verified:
             if verify_cache:
-                from aimusic.audio.cache import MANIFEST, verified_entry
-                if not verified_entry(staging, source.name, [n for n in names if n != MANIFEST]):
-                    raise ValueError('cache changed during restore; retry')
-            root.publish(staging, names)
+                root.publish(verified, [*names, MANIFEST])
+            else:
+                with tempfile.TemporaryDirectory(prefix='.stems-') as tmp:
+                    staging = Path(tmp)
+                    for name in names:
+                        shutil.copyfile(verified / name, staging / name)
+                    root.publish(staging, names)
+
+
+def stem_artifact_names(stems: tuple[SourceStem, ...]) -> list[str]:
+    return [_stem_id(stem) + suffix for stem in stems for suffix in ('.mid', '.wav', '.wav.json')] + list(GENERATED.values())
 
 
 @dataclass(frozen=True)
@@ -175,7 +180,7 @@ class StemRenderPlan:
 
     @property
     def names(self) -> list[str]:
-        return [_stem_id(stem) + suffix for stem in self.stems for suffix in ('.mid', '.wav', '.wav.json')] + list(GENERATED.values())
+        return stem_artifact_names(self.stems)
 
 
 def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None = None,

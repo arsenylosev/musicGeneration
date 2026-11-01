@@ -5,7 +5,8 @@ import hashlib
 import json
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -85,3 +86,17 @@ def cached_stage(root: Path, identity: dict[str, Any], names: list[str],
             if not verified_entry(destination, key, names):
                 raise
         return destination, False
+
+
+@contextmanager
+def restored_entry(source: Path, key: str, names: list[str]) -> Iterator[Path]:
+    """Copy an untrusted cache into private scratch, then verify the request."""
+    with tempfile.TemporaryDirectory(prefix='.restore-') as tmp:
+        staging = Path(tmp)
+        if not verified_entry(source, key, names):
+            raise ValueError('cache changed before restore; retry')
+        for name in [*names, MANIFEST]:
+            shutil.copyfile(source / name, staging / name)
+        if not verified_entry(staging, key, names):
+            raise ValueError('cache changed during restore; retry')
+        yield staging

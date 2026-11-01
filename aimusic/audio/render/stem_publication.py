@@ -150,12 +150,19 @@ class PinnedOutput:
 
     def publish(self, staging: Path, names: list[str]) -> None:
         """Publish complete files, rolling back only this invocation's inodes."""
+        with self.publication(staging, names):
+            pass
+
+    @contextmanager
+    def publication(self, staging: Path, names: list[str]) -> Iterator[None]:
+        """Keep rollback active while a caller publishes a related bundle."""
         self.check_new_files(names)
         published: list[tuple[str, tuple[int, int]]] = []
         try:
             for name in names:
                 self.verify()
                 self._publish_file(staging / name, name, published)
+            yield
             self.verify()  # Also detect changes during the final staging cleanup.
         except BaseException:
             for name, identity in reversed(published):

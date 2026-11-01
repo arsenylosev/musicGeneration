@@ -81,10 +81,15 @@ modified WAVs/sidecars, invalid manifests, and symlink entries are misses. A kil
 process may leave a `.pending-*` scratch directory; it is never selected as a
 cache hit and may be removed when no producers are running.
 
-Warm copies retain the original bytes of WAVs and all provenance. Render copies
-are reverified in scratch space before exclusive publication, with the manifest
-last. Existing output files/symlinks (including `render.json`) are refused, not
-replaced; choose a fresh output directory to rerun. Existing C4 safe-stem naming,
+Warm copies retain the original bytes of WAVs and all provenance. Every stage
+is copied into private scratch and reverified against the requested fingerprint
+and every output digest before use. Substituting another valid entry also fails.
+The run preflights all artifact names (including package reports and sidecars)
+and pins both output directories before stage execution. All computation stays
+outside the output tree; complete bundles publish exclusively through the same
+pinned mechanism, with the stem cache manifest last. Existing files, symlinks
+and hardlink/source aliases are refused, not overwritten; choose a fresh output
+directory to rerun. Existing C4 safe-stem naming,
 role index and `stems/rough_mix.wav` remain unchanged.
 
 ## Asset-free evidence
