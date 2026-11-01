@@ -30,13 +30,28 @@ hard-coded simple-render bypass.
   never trigger bridge failover. Unknown environment values now fail clearly.
 
 The lightweight default remains the **simple integer-pitch sine preview**.
-Its capability is `direct_12`, not instrument/controller fidelity. The admission
-screen rejects non-12/fractional-base metadata, nonzero pitched-channel wheels,
-tuning/unknown RPN/NRPN data and unverified SysEx (including MTS), rather than flattening
-pitches. Bend-sensitivity setup with centered wheels is accepted (including the symbolic
-exporter's 48-semitone range, which does not detune a zero wheel).
-Percussion remains drum-key based. This conservative screen is not the later
-Score-derived MPE proof or audio f0 measurement.
+Its capability is `direct_12`, not instrument/controller fidelity. Task **8.1**
+adds `audio/render/tuning.py`: requirements use Score heights (`base + h*12/EDO`),
+all applicable metadata layers and source channel events. A `direct_12` label
+cannot override fractional base tuning, any nonzero bend, or nonstandard RPN
+bend range/fine/coarse tuning. Integer base anchors remain on the 12-TET lattice.
+A known integer-pitch Score subset can use direct-12; without Score evidence,
+non-12 EDO metadata is conservatively gated.
+
+Centered wheel resets and explicit defaults (2-semitone range, zero fine/coarse
+offset) are neutral. **The former 48-semitone centered-wheel exception is removed.**
+Nonstandard values require `channel_pitch`, even if later reset. RPN selection
+is channel-local, null selection is a no-op, and unknown RPN/NRPN writes require
+`unsupported`. Per-channel MPE exports require `channel_pitch`; explicit MPE zone
+configuration requires the distinct `mpe` capability. MTS SysEx/metadata require
+`mts`, while other SysEx requires `sysex`. These capabilities are not advertised
+by either current backend. Percussion stays drum-key based and is excluded from
+pitched intent; global unverified SysEx is still gated.
+
+Orchestration preflights original MIDI before groove, then checks expressive MIDI
+again before render-cache lookup. Task **8.2** native MPE proof and **8.3**
+Score/event pitch-agreement checks remain open; capability classification is not
+a MIDI-pitch or audio-f0 accuracy certificate.
 
 C6 tasks 7.1–7.3 add the [clean-room FluidSynth adapter](audio-fluidsynth.md),
 optional pinned bindings, common horizon/fixed tail, aligned WAVs and attenuation-only
@@ -119,7 +134,7 @@ role index and `stems/rough_mix.wav` remain unchanged.
 ## Asset-free evidence
 
 ```bash
-python -m pytest tests/test_audio_registry.py tests/test_audio_orchestrator.py tests/test_audio_bridge.py tests/test_audio_stems.py tests/test_audio_stem_publication.py tests/test_audio_run_safety.py -q
+python -m pytest tests/test_audio_tuning.py tests/test_audio_registry.py tests/test_audio_orchestrator.py tests/test_audio_bridge.py tests/test_audio_stems.py tests/test_audio_stem_publication.py tests/test_audio_run_safety.py -q
 ```
 
 Coverage includes canonical role overrides, forbidden tuning/fallback, missing

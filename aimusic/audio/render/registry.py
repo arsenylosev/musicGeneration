@@ -18,9 +18,13 @@ import numpy as np
 import soundfile as sf
 
 from aimusic.audio.config import normalize_routing
-from aimusic.audio.midi_events import MidiEvents
 from aimusic.audio.render import simple_r
 from aimusic.audio.render.util import limit_peak, render_frames
+from aimusic.audio.render import tuning
+
+
+# Retain the existing registry API while keeping policy in its own module.
+required_tuning = tuning.required_tuning
 
 
 class MissingRendererResource(RuntimeError):
@@ -202,43 +206,6 @@ def resolve_renderer(role: str, *, config: dict[str, Any], tuning: str = 'direct
                                 'select a verified compatible renderer (no pitch flattening)')
     digest = file_digest(soundfont) if soundfont is not None else None
     return ResolvedRenderer(requested, backend, tuning, reason, soundfont, digest)
-
-
-def required_tuning(midi: MidiEvents, metadata: dict[str, Any], *, drums: bool = False) -> str:
-    """Conservative admission gate, not the later Score/pitch reconstruction proof.
-
-    Opaque SysEx is unverified; nonzero wheels, RPN/NRPN data and tuning metadata
-    cannot be rendered as integer-pitch sines. Percussion stays drum-key based.
-    """
-    if any(e.message.type == 'sysex' for e in midi.events):
-        return 'sysex'
-    if drums:
-        return 'direct_12'
-    tuning = metadata.get('tuning', {})
-    for values in (metadata, tuning):
-        base = float(values.get('base_tuning', 0))
-        if (values.get('edo', 12) != 12 or not base.is_integer() or
-                values.get('method', 'direct_12') != 'direct_12' or values.get('microtonal', False)):
-            return 'channel_pitch'
-    selectors = [[127, 127] for _ in range(16)]
-    for event in midi.events:
-        m = event.message
-        if event.channel == 9:
-            continue
-        if m.type == 'pitchwheel' and m.pitch:
-            return 'channel_pitch'
-        if m.type == 'control_change':
-            rpn = selectors[m.channel]
-            if m.control in (100, 101):
-                rpn[101 - m.control] = m.value
-            if m.control in (96, 97, 98, 99):
-                return 'channel_pitch'
-            if m.control in (6, 38) and rpn != [0, 0]:
-                return 'channel_pitch'  # Coarse/fine tuning or unknown data is unverified.
-            # Sensitivity alone never detunes a centered wheel (including the
-            # symbolic exporter's default 48-semitone range). Nonzero wheels
-            # are rejected independently above.
-    return 'direct_12'
 
 
 def get_renderer_name(role: str, *, config: dict[str, Any] | None = None) -> str:

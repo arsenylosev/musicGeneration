@@ -265,6 +265,12 @@ class Orchestrator:
                 self._copy_stage_artifacts(verified / names[0], dest, '.json')
             analysis_doc = json.loads(dest.read_text(encoding='utf-8'))
 
+        if stages.get("render", True):
+            # Admit original channel evidence before any transform/cache lookup
+            # can replace it. Expressive MIDI is independently checked below.
+            prepare_stem_render(midi_path, config=self.config, analysis=analysis_doc,
+                                score=context.score if context else None)
+
         if stages.get("expressivization", True):
             groove_spec = self._load_groove_spec()
             light = bool(self.config.get("groove", {}).get("light_cleanup", False))
@@ -283,7 +289,8 @@ class Orchestrator:
             expressive_midi = dest
 
         if stages.get("render", True):
-            plan = prepare_stem_render(expressive_midi, config=self.config, analysis=analysis_doc)
+            plan = prepare_stem_render(expressive_midi, config=self.config, analysis=analysis_doc,
+                                       score=context.score if context else None)
             effective = deepcopy(plan.config)
             effective.pop('source_path', None)
             effective['paths'] = {k: v for k, v in effective.get('paths', {}).items()

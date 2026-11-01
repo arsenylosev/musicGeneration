@@ -26,6 +26,7 @@ from aimusic.audio.render import registry
 from aimusic.audio.render.simple_r import _peak_dbfs
 from aimusic.audio.render.stem_publication import pin_output
 from aimusic.audio.render.util import peak_normalize, render_frames, limit_peak
+from aimusic.core.core_types import Score
 
 
 @dataclass(frozen=True)
@@ -200,7 +201,7 @@ class StemRenderPlan:
 
 
 def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None = None,
-                        analysis: dict[str, Any] | None = None) -> StemRenderPlan:
+                        analysis: dict[str, Any] | None = None, score: Score | None = None) -> StemRenderPlan:
     """Resolve every role/capability/asset before rendering or querying its cache."""
     payload = Path(midi_path).read_bytes()
     source = MidiEvents.from_bytes(payload)
@@ -218,11 +219,10 @@ def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None 
     limit_peak(np.zeros(1), float(render['mix_peak']))
     asset = resolve_soundfont(cfg)
     metadata = analysis or {}
-    declarations = {row.get('source_track_index'): row for row in metadata.get('tracks', [])}
     choices = tuple(registry.resolve_renderer(
         stem.role, config=cfg, soundfont=asset,
-        tuning=registry.required_tuning(stem.midi, {**metadata, **declarations.get(stem.source_track_index, {})},
-                                        drums=stem.channels == (9,))) for stem in logical)
+        tuning=registry.required_tuning(stem.midi, metadata, score=score, track_name=stem.name,
+                                        source_track_index=stem.source_track_index, drums=stem.channels == (9,))) for stem in logical)
     end = float(source.tempo_map.seconds(max(e.tick for e in source.events)))
     bounds = metadata.get('bar_boundaries_sec')
     if not bounds:

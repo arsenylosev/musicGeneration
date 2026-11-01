@@ -292,6 +292,20 @@ class TestVerifiedCache(unittest.TestCase):
         out = orch.run(self.source, output_dir=self.root / f'out{self.counter}')
         return orch, out
 
+    def _use_fake_tuning_renderer(self):
+        # Cache tests vary tuning metadata, not audio fidelity. The production
+        # simple backend must no longer admit their nonstandard range request.
+        from dataclasses import replace
+        from unittest.mock import patch
+        from aimusic.audio.render import registry
+        simple = registry.resolve_renderer('bass', config={}).backend
+        fake = replace(simple, name='tuning-test', capabilities=registry.RendererCapabilities(
+            tuning_modes=('direct_12', 'channel_pitch')))
+        provider = patch.dict(registry._BACKENDS, {'tuning-test': lambda asset: fake})
+        provider.start()
+        self.addCleanup(provider.stop)
+        self.config['render']['backend'] = 'tuning-test'
+
     def test_resolves_available_renderer_again_before_warm_lookup(self):
         from dataclasses import replace
         from unittest.mock import patch
@@ -401,6 +415,7 @@ class TestVerifiedCache(unittest.TestCase):
         self.assertEqual(orch.cache_misses.get('render'), 1)
 
     def test_source_expressive_bytes_and_semantic_metadata_change_keys(self):
+        self._use_fake_tuning_renderer()
         import mido
         from copy import deepcopy
         from unittest.mock import patch
@@ -456,6 +471,7 @@ class TestVerifiedCache(unittest.TestCase):
         self.assertEqual(orch.cache_hits.get('render'), 1)
 
     def test_verified_package_tuning_and_structure_invalidate_with_identical_midi(self):
+        self._use_fake_tuning_renderer()
         from unittest.mock import patch
         from aimusic.audio.from_score import from_score
         from aimusic.audio.orchestrator import Orchestrator

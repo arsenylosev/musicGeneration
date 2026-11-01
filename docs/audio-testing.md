@@ -246,6 +246,31 @@ approved scratch directory. Native FluidSynth/SoundFont rendering, the eight-bar
 native benchmark, controlled audio tuning and human listening were **not run**.
 Tasks **7.4/7.5 remain unchecked**; MUS-34 completion is not proposed.
 
+## Tuning requirements checkpoint (8.1 only)
+
+`tests/test_audio_tuning.py` covers Score/EDO/base intent, misleading direct-12
+labels, channel-local RPN/default/null/partial writes, all nonzero bends, MPE zone
+and MTS evidence, percussion exclusion, and pre-groove/pre-publication admission.
+See [capability policy and migration](audio-renderer-cache.md). The two cache
+metadata tests use an explicitly fake tuning-capable provider; production simple
+and FluidSynth still advertise only `direct_12`.
+
+Recorded on 2026-11-01 in the existing Python 3.12.12 audio/dev environment:
+
+- Focused tuning/registry/reconcile/orchestrator: **74 passed**, 112 subtests.
+- `python -m pytest tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q`:
+  **266 passed**, 342 subtests, **1 skipped** optional bridge test; retained
+  non-track-0 metadata warning.
+- `python -m unittest discover -s tests -p 'test_*.py'`: **599 run**, **9 skipped**,
+  no failures (64.361 s).
+- `flake8 aimusic tests ui.py` and `mypy aimusic tests ui.py`: clean (125 files).
+- TDD red runs demonstrated range/MTS/Score/metadata-identity gaps and groove
+  running before admission. Inverting the RPN default comparison failed tests;
+  the original source and its Python bytecode cache were restored before checks.
+
+These are asset-free admission tests, not native tuning/f0 evidence. Only **8.1**
+is complete; **8.2/8.3 remain open**, with no MPE capability promotion.
+
 ## Risks
 
 | Risk | Mitigation |

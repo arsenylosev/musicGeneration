@@ -158,7 +158,7 @@ class TestVerifiedRendererContracts(unittest.TestCase):
                                      mido.Message('note_off', note=60, time=480)])]
         self.assertEqual(required_tuning(MidiEvents.from_mido(midi), {}), 'direct_12')
         midi.tracks[0][2].value = 48
-        self.assertEqual(required_tuning(MidiEvents.from_mido(midi), {}), 'direct_12')
+        self.assertEqual(required_tuning(MidiEvents.from_mido(midi), {}), 'channel_pitch')
         midi.tracks[0][4].pitch = 100
         self.assertEqual(required_tuning(MidiEvents.from_mido(midi), {}), 'channel_pitch')
 

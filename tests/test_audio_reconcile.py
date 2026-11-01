@@ -30,7 +30,8 @@ class TestAudioReconcile(unittest.TestCase):
             NoteEvent(ton=240, toff=720, h=21, v=0.8, track=name),
         ))
         midi = self.root / f'{edo}.mid'
-        render_midi(score, EDO(EDOConfig(n=edo)), str(midi))
+        # Keep source tuning aligned with write_render_package defaults.
+        render_midi(score, EDO(EDOConfig(n=edo, base_tuning=0, pitch_bend_range=2)), str(midi))
         package = write_render_package(
             self.root, score=score, midi_path=midi, manifest=RunManifest(seed=1, config_dump={}),
             edo=edo, track_programs={name: 0} if name == 'texture' else None,
@@ -383,6 +384,8 @@ class TestAudioReconcile(unittest.TestCase):
                 self.assertEqual(doc['tracks'][0]['role'], 'lead')
                 self.assertEqual(doc['tuning'], self.ctx.tuning)
                 self.assertEqual(doc['verified_identity'], self.ctx.verified_identity)
+            for call in prepare.call_args_list:
+                self.assertEqual(call.kwargs['score'], self.ctx.score)
             self.assertTrue(json.loads((out / 'score.reconciliation.json').read_text())['passed'])
             self.ctx.package.midi_path.write_bytes(b'corrupt')
             with self.assertRaisesRegex(ContractViolation, 'score.mid.*expected=.*actual='):

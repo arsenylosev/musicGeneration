@@ -86,7 +86,7 @@ Suggested message: `feat(audio): enforce supported MPE tuning and reject lossy r
 
 Files: new `audio/render/tuning.py`, context/registry integration, MPE fixtures and tuning-policy tests/docs.
 
-- [ ] 8.1 Derive required tuning from Score/EDO/base tuning and source channel events; verify new `tests/test_audio_tuning.py` covers ordinary direct-12, misleading fractional-base labels, pitch bends and nonstandard RPN range, keeping percussion drum-key based.
+- [x] 8.1 Derive required tuning from Score/EDO/base tuning and source channel events; verify new `tests/test_audio_tuning.py` covers ordinary direct-12, misleading fractional-base labels, pitch bends and nonstandard RPN range, keeping percussion drum-key based.
 - [ ] 8.2 Prove the FluidSynth per-channel MPE capability using a controlled native fixture and forbid simple fallback for it; verify unsupported MTS, ambiguous channel ownership and unavailable MPE backend failures occur before successful output publication.
 - [ ] 8.3 Carry tuning identity into manifests/cache and compare expected versus event-reconstructed pitch after groove and isolation; verify the 19-EDO path stays within one cent, document the exact supported MPE subset and unsupported MTS path, and commit C7 after lightweight and targeted native tests pass.
 
