@@ -18,8 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from aimusic.audio.config import parse_yaml
 from aimusic.audio.from_score import AudioPackageContext, ValidationReport, from_score, validate_package
 from aimusic.audio.from_midi import ImportedMidiContext, from_midi
 from aimusic.audio.manifest import content_hash_files
@@ -132,8 +131,7 @@ class Orchestrator:
                 candidate = repo_root / spec_path
                 if candidate.is_file():
                     p = candidate
-            with p.open(encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
+            data = parse_yaml(p.read_text(encoding="utf-8"), p) or {}
             if not isinstance(data, dict):
                 raise ValueError(f"groove spec must be a mapping: {p}")
             return data
@@ -372,8 +370,7 @@ def _semantic_analysis(analysis: dict[str, Any] | None) -> dict[str, Any]:
 
 def load_config(path: Path | str) -> dict[str, Any]:
     """Load YAML config (default.yaml or a profile)."""
-    with Path(path).open(encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+    data = parse_yaml(Path(path).read_text(encoding="utf-8"), path) or {}
     if not isinstance(data, dict):
         raise TypeError(f"config root must be a mapping: {path}")
     return data

@@ -17,6 +17,8 @@ python -m aimusic.app.cli render-audio outputs/run_<hash> --profile preview --ou
   `<configured output_dir>/<run_id>`; imports use `imported_<source SHA-256 prefix>`.
 - `--profile` accepts packaged `preview` / `listening` or a YAML path. Use
   `./preview` to explicitly select a file named `preview` rather than the profile.
+  Malformed YAML reports the config/profile path (or packaged resource label),
+  without an uncaught parser traceback.
 - `--soundfont` overrides profile/config `paths.soundfont`, then
   `AIMUSIC_SOUNDFONT`. Relative config assets are anchored to the config file.
   A bad higher-precedence selection fails; it never falls through to another.
@@ -59,7 +61,17 @@ checks before successful publication. No simple fallback flattens bends/MTS.
 Source changes after admission fail even with a warm cache. Track names are not
 paths: duplicate/traversal/reserved names get stable safe identity-based names.
 Existing artifacts and stem-directory symlinks are refused, not overwritten.
-Use a fresh output directory for each publication.
+Use a fresh output directory for each publication. The package-to-`m2a` bridge
+also preflights `score.mid`/`structure.json`, rejects source-directory aliases,
+runs against a private package snapshot, and exclusively publishes the complete
+output bundle with rollback on failure (empty output directories may remain).
+
+Imported meter expansion is limited to **100,000 bar boundaries**, cumulatively
+across meter changes. Exact integer admission checks run before expansion, so an
+extreme MIDI denominator cannot trigger an effectively unbounded loop. This is a
+bound on derived analysis, not on PPQN or the denominator alone: high-resolution
+and short fine-meter inputs remain valid. Shorten the excerpt or use a smaller
+meter denominator if the limit is exceeded.
 
 Simple preview produces additive sine audio with source event timing, including
 non-track-zero tempo changes. It is **not** recognizable instrument rendering,

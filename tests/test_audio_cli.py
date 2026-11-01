@@ -219,3 +219,21 @@ main()
                            '--out', str(root / 'bad-out'), '--no-validate-only')
             self.assertNotEqual(bad.returncode, 0)
             self.assertIn('--soundfont', bad.stderr)
+
+    def test_malformed_profile_fails_cleanly_for_both_audio_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = _generate_package(root / 'generated')
+            source = imported_fixture(root / 'source.mid')
+            profile = root / 'broken-profile.yaml'
+            profile.write_text('render: [\n')
+            for command, path in (('render-midi', source), ('render-audio', package)):
+                with self.subTest(command=command):
+                    result = _run_cli(command, str(path), '--profile', str(profile), '--out', str(root / 'out'),
+                                      '--no-validate-only')
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn('YAML', result.stderr)
+                    self.assertIn(str(profile), result.stderr)
+                    self.assertNotIn('Traceback', result.stderr)
+                    self.assertNotIn('ParserError', result.stderr)
+                    self.assertFalse((root / 'out').exists())

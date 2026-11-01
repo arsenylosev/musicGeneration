@@ -175,3 +175,71 @@ class TestImportedContext(unittest.TestCase):
                 Orchestrator(load_audio_config('preview').to_dict(), root / 'cache').run(ctx, output_dir=root / 'out')
             self.assertFalse((root / 'out').exists())
             self.assertEqual(source.read_bytes(), changed)
+
+
+class TestImportedMeterAdmission(unittest.TestCase):
+    def test_huge_valid_denominator_is_rejected_during_admission(self) -> None:
+        from aimusic.audio.from_midi import from_midi
+        from aimusic.audio.midi_events import MidiEventError
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for exponent in (100, 255):
+                with self.subTest(exponent=exponent):
+                    source = imported_fixture(Path(tmp) / f'meter-{exponent}.mid')
+                    midi = mido.MidiFile(source)
+                    midi.tracks[0][1].denominator = 2 ** exponent
+                    midi.save(source)
+                    original = source.read_bytes()
+                    # Admission itself must refuse; do not risk entering the old
+                    # unbounded analysis loop just to demonstrate the regression.
+                    with self.assertRaisesRegex(MidiEventError, r'meter.*bar boundaries.*(shorter|denominator)'):
+                        from_midi(source)
+                    self.assertEqual(source.read_bytes(), original)
+
+    def test_high_resolution_and_short_fine_meter_are_not_rejected(self) -> None:
+        from aimusic.audio.from_midi import from_midi
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for ppqn, numerator, denominator, duration, count in (
+                (32767, 4, 4, 32767 * 8, 3),
+                (32767, 4, 1024, 32767 * 8, 513),
+                (32767, 255, 2 ** 20, 1, 2),
+            ):
+                with self.subTest(ppqn=ppqn, denominator=denominator):
+                    source = Path(tmp) / 'high-resolution.mid'
+                    midi = mido.MidiFile(type=0, ticks_per_beat=ppqn)
+                    midi.tracks.append(mido.MidiTrack([
+                        mido.MetaMessage('time_signature', numerator=numerator, denominator=denominator),
+                        mido.Message('note_on', note=60, velocity=80),
+                        mido.Message('note_off', note=60, time=duration),
+                    ]))
+                    midi.save(source)
+                    doc = from_midi(source).analysis_document()
+                    self.assertEqual(len(doc['bar_boundaries_sec']), count)
+                    self.assertEqual(doc['bar_boundaries_sec'][0], 0)
+                    self.assertAlmostEqual(doc['bar_boundaries_sec'][-1], duration / ppqn / 2)
+
+    def test_bar_limit_is_inclusive_and_cumulative_across_meter_changes(self) -> None:
+        from aimusic.audio.from_midi import from_midi
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'many-bars.mid'
+            midi = mido.MidiFile(type=0, ticks_per_beat=1)
+            midi.tracks.append(mido.MidiTrack([
+                mido.MetaMessage('time_signature', numerator=1, denominator=4),
+                mido.Message('note_on', note=60, velocity=80),
+                mido.Message('note_off', note=60, time=99999),
+            ]))
+            midi.save(source)
+            self.assertEqual(len(from_midi(source).analysis_document()['bar_boundaries_sec']), 100000)
+            midi.tracks[0][-1].time = 100000
+            midi.save(source)
+            with self.assertRaisesRegex(ValueError, '100000 bar boundaries'):
+                from_midi(source)
+            midi.tracks[0][2:] = [
+                mido.MetaMessage('time_signature', numerator=1, denominator=8, time=50000),
+                mido.Message('note_off', note=60, time=25000),
+            ]
+            midi.save(source)
+            with self.assertRaisesRegex(ValueError, '100000 bar boundaries'):
+                from_midi(source)

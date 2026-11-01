@@ -309,3 +309,47 @@ class TestAudioConfigValueTypes(unittest.TestCase):
         raw["custom"]["first"]["values"].append("changed")
         self.assertEqual(raw["custom"]["second"]["values"], expected)
         self.assertEqual(config.to_dict()["custom"]["first"]["values"], expected)
+
+
+class TestMalformedAudioYAML(unittest.TestCase):
+    def test_explicit_profile_reports_its_path_as_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'broken-profile.yaml'
+            for text in ('render: [\n', 'render:\n\tbackend: simple', 'custom: !!unknown tag'):
+                with self.subTest(text=text):
+                    path.write_text(text)
+                    with self.assertRaisesRegex(ValueError, 'YAML') as error:
+                        load_audio_config(path)
+                    self.assertIn(str(path.resolve()), str(error.exception))
+
+    def test_packaged_yaml_error_names_default_or_profile_resource(self) -> None:
+        from importlib.resources import files
+
+        packaged = files('aimusic.audio').joinpath('resources')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resources = root / 'resources'
+            resources.mkdir()
+            for broken in ('audio.default.yaml', 'preview.yaml', 'listening.yaml'):
+                with self.subTest(broken=broken):
+                    for name in ('audio.default.yaml', 'preview.yaml', 'listening.yaml'):
+                        (resources / name).write_text('render: [\n' if name == broken else packaged.joinpath(name).read_text())
+                    profile = 'listening' if broken == 'listening.yaml' else 'preview'
+                    with patch('aimusic.audio.config.files', return_value=root):
+                        with self.assertRaisesRegex(ValueError, 'YAML') as error:
+                            load_audio_config(profile)
+                    self.assertIn(f'aimusic.audio/resources/{broken}', str(error.exception))
+
+    def test_orchestrator_config_and_groove_yaml_report_their_path(self) -> None:
+        from aimusic.audio.orchestrator import Orchestrator, load_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / 'broken.yaml'
+            path.write_text('render: [\n')
+            orch = Orchestrator({'groove': {'spec_path': str(path)}}, root / 'cache')
+            for label, load in (('config', lambda: load_config(path)), ('groove', orch._load_groove_spec)):
+                with self.subTest(label=label):
+                    with self.assertRaisesRegex(ValueError, 'YAML') as error:
+                        load()
+                    self.assertIn(str(path), str(error.exception))

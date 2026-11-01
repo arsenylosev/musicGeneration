@@ -157,3 +157,133 @@ class TestExplicitBackendFailurePolicy(unittest.TestCase):
         from aimusic.audio.bridge import resolve_backend
         with mock.patch.dict(os.environ, {'AIMUSIC_AUDIO_BACKEND': 'typo'}), self.assertRaisesRegex(ValueError, 'typo'):
             resolve_backend()
+
+
+class TestM2APublication(unittest.TestCase):
+    def setUp(self):
+        import sys
+        from tests.test_audio_entry import _generate_package
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.package = _generate_package(self.root / 'generated')
+        self.original = {p.name: p.read_bytes() for p in self.package.iterdir() if p.is_file()}
+        self.out = self.root / 'out'
+        self.out.mkdir()
+        self.orch = mock.Mock()
+        self.orch.return_value.run.side_effect = lambda midi, *, output_dir: output_dir
+        module = mock.Mock(Orchestrator=self.orch)
+        for patcher in (
+            mock.patch.dict(os.environ, {'AIMUSIC_AUDIO_BACKEND': 'm2a'}),
+            mock.patch('aimusic.audio.bridge.m2a_available', return_value=True),
+            mock.patch.dict(sys.modules, {'m2a': mock.Mock(), 'm2a.orchestrator': module}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def render(self, out=None):
+        from aimusic.audio.bridge import render_audio_from_package
+        return render_audio_from_package(self.package, output_dir=out or self.out)
+
+    def assert_source_unchanged(self):
+        self.assertEqual(self.original, {p.name: p.read_bytes() for p in self.package.iterdir() if p.is_file()})
+
+    def test_collisions_preflight_entire_bundle_without_overwrite_or_partial_copy(self):
+        for name in ('score.mid', 'structure.json'):
+            for kind in ('regular', 'victim_link', 'source_link', 'source_hardlink'):
+                with self.subTest(name=name, kind=kind):
+                    target = self.out / name
+                    victim = self.root / 'victim'
+                    victim.write_bytes(b'KEEP')
+                    if kind == 'regular':
+                        target.write_bytes(b'EXISTING')
+                    elif kind == 'victim_link':
+                        target.symlink_to(victim)
+                    else:
+                        # Cross-source alias: copy2's same-file guard cannot help.
+                        source = self.package / ('structure.json' if name == 'score.mid' else 'score.mid')
+                        if kind == 'source_link':
+                            target.symlink_to(source)
+                        else:
+                            os.link(source, target)
+                    before = target.read_bytes()
+                    try:
+                        with self.assertRaises((ValueError, FileExistsError)):
+                            self.render()
+                        self.orch.assert_not_called()
+                        self.assertEqual(target.read_bytes(), before)
+                        self.assertEqual(victim.read_bytes(), b'KEEP')
+                        self.assert_source_unchanged()
+                        self.assertEqual(list(self.out.iterdir()), [target])
+                    finally:
+                        target.unlink()
+
+    def test_output_directory_alias_to_package_is_rejected(self):
+        alias = self.root / 'alias'
+        alias.symlink_to(self.package.parent, target_is_directory=True)
+        for out in (self.package, alias / self.package.name):
+            with self.subTest(out=out), self.assertRaises((ValueError, FileExistsError)):
+                self.render(out)
+            self.assert_source_unchanged()
+        self.orch.assert_not_called()
+
+    def test_failed_backend_leaves_no_partial_publication_or_source_changes(self):
+        def fail(midi, *, output_dir):
+            (output_dir / 'partial.wav').write_bytes(b'PARTIAL')
+            Path(midi).write_bytes(b'BACKEND EDIT')
+            raise RuntimeError('backend failed')
+        self.orch.return_value.run.side_effect = fail
+        with self.assertRaisesRegex(RuntimeError, 'backend failed'):
+            self.render()
+        self.assert_source_unchanged()
+        self.assertEqual(list(self.out.iterdir()), [])
+
+    def test_success_publishes_complete_private_backend_output(self):
+        def run(midi, *, output_dir):
+            self.assertNotEqual(Path(midi).resolve(), (self.package / 'score.mid').resolve())
+            self.assertEqual(Path(midi).read_bytes(), self.original['score.mid'])
+            self.assertEqual(list(self.out.iterdir()), [])
+            (output_dir / 'stems').mkdir()
+            (output_dir / 'stems/mix.wav').write_bytes(b'AUDIO')
+            return output_dir
+        self.orch.return_value.run.side_effect = run
+        self.assertEqual(self.render(), self.out)
+        self.assertEqual((self.out / 'score.mid').read_bytes(), self.original['score.mid'])
+        self.assertEqual((self.out / 'structure.json').read_bytes(), self.original['structure.json'])
+        self.assertEqual((self.out / 'stems/mix.wav').read_bytes(), b'AUDIO')
+        self.assert_source_unchanged()
+
+    def test_late_publication_failure_rolls_back_all_directories(self):
+        def run(midi, *, output_dir):
+            (output_dir / 'stems').mkdir()
+            (output_dir / 'stems/mix.wav').write_bytes(b'AUDIO')
+            return output_dir
+        self.orch.return_value.run.side_effect = run
+        real_link = os.link
+
+        def link(src, dst, **kwargs):
+            if Path(dst).name == 'mix.wav':
+                raise OSError('publication failed')
+            return real_link(src, dst, **kwargs)
+        with mock.patch('os.link', side_effect=link), self.assertRaisesRegex(OSError, 'publication failed'):
+            self.render()
+        self.assertFalse([p for p in self.out.rglob('*') if p.is_file()])
+        self.assert_source_unchanged()
+
+
+class TestBridgeMalformedYAML(unittest.TestCase):
+    def test_config_and_profile_errors_include_path_before_output_writes(self):
+        from aimusic.audio.bridge import render_audio_from_package
+        from tests.test_audio_entry import _generate_package
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = _generate_package(root / 'generated')
+            path = root / 'broken.yaml'
+            path.write_text('render: [\n')
+            for option in ('config_path', 'profile_path'):
+                with self.subTest(option=option):
+                    with self.assertRaisesRegex(ValueError, 'YAML') as error:
+                        render_audio_from_package(package, output_dir=root / 'out', **{option: path})
+                    self.assertIn(str(path), str(error.exception))
+                    self.assertFalse((root / 'out').exists())

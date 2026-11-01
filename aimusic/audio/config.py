@@ -156,6 +156,16 @@ def normalize_routing(render: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def parse_yaml(text: str, source: Path | str) -> Any:
+    """Translate parser failures at the boundary, retaining source context."""
+    import yaml
+
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in {source}: {exc}") from exc
+
+
 def load_audio_config(profile: Path | str | None = None) -> AudioConfig:
     """Load packaged defaults, optionally overlaid by a named or explicit YAML profile.
 
@@ -163,23 +173,26 @@ def load_audio_config(profile: Path | str | None = None) -> AudioConfig:
     source_path is provenance for explicit files, never the settings authority.
     """
     require_audio_extra()
-    import yaml
-
     resources = files("aimusic.audio").joinpath("resources")
+    resource_label = "aimusic.audio/resources"
     raw = _require_mapping(
-        "Audio config root", yaml.safe_load(resources.joinpath("audio.default.yaml").read_text(encoding="utf-8"))
+        "Audio config root", parse_yaml(resources.joinpath("audio.default.yaml").read_text(encoding="utf-8"),
+                                        f"{resource_label}/audio.default.yaml")
     )
     config_path = None
+    source: Path | str = "empty profile override"
     if isinstance(profile, str) and profile in _PROFILES:
         text = resources.joinpath(f"{profile}.yaml").read_text(encoding="utf-8")
+        source = f"{resource_label}/{profile}.yaml"
     elif profile is not None:
         config_path = Path(profile).expanduser().resolve()
         if not config_path.is_file():
             raise FileNotFoundError(f"Audio config not found: {config_path}")
         text = config_path.read_text(encoding="utf-8")
+        source = config_path
     else:
         text = "{}"
-    override = _require_mapping("Audio config root", yaml.safe_load(text))
+    override = _require_mapping("Audio config root", parse_yaml(text, source))
     _validate_json_values(raw)
     _validate_json_values(override)
     for section in ("render", "stages", "paths"):
