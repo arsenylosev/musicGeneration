@@ -349,6 +349,37 @@ class TestReviewPublication(unittest.TestCase):
                         self.assertFalse(destination.exists())
                 self.assertEqual(len(list(Path(tmp).iterdir())), 4 if existing else 1)
 
+    def test_failed_rollback_retains_recovery_files(self):
+        import os
+        from unittest.mock import patch
+        from aimusic.audio.groove.apply import apply_groove
+        from tests.test_audio_midi_events import fixture
+        with tempfile.TemporaryDirectory() as tmp:
+            source, out = Path(tmp) / 'source.mid', Path(tmp) / 'out.mid'
+            fixture().save(source)
+            original = source.read_bytes()
+            for suffix in ('', '.diff.json', '.json'):
+                Path(str(out) + suffix).write_bytes(b'previous artifact')
+            replace = os.replace
+            failed = False
+
+            def fail_publication_and_rollback(src, dst, **kwargs):
+                nonlocal failed
+                if Path(dst).name == out.name + '.json':
+                    failed = True
+                    raise OSError('publish failed')
+                if failed:
+                    raise OSError('rollback failed')
+                return replace(src, dst, **kwargs)
+
+            with patch('os.replace', side_effect=fail_publication_and_rollback):
+                with self.assertRaisesRegex(OSError, 'recovery files retained'):
+                    apply_groove(source, {}, output_path=out)
+            self.assertEqual(source.read_bytes(), original)
+            recovery = list(Path(tmp).glob('.groove-*/backup-*'))
+            self.assertEqual(len(recovery), 3)
+            self.assertTrue(all(p.read_bytes() == b'previous artifact' for p in recovery))
+
     def test_replace_never_follows_a_late_source_link(self):
         import os
         from unittest.mock import patch

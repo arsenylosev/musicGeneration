@@ -79,7 +79,8 @@ Opaque SysEx is preserved, not interpreted. Every moved channel event, not just
 note endpoints, is checked against opaque SysEx boundaries (including same-tick
 order). SysEx invalidates channel snapshots: defaults/pre-reset values are no
 longer known. Retiming within a region may proceed without replay, but replay
-requiring unknown state fails closed. Ghosts cannot copy state across MTS/SysEx.
+requiring unknown state fails closed. Parameter data entry after SysEx requires
+an explicitly known RPN/NRPN selector. Ghosts cannot copy state across MTS/SysEx.
 Preserving MTS bytes does **not**
 prove MTS rendering capability. Active MPE master-zone interpretation, alternate
 hold pedals/channel-mode resets, device-dependent relative parameter increment/
@@ -100,7 +101,8 @@ must first be repaired. Failures occur before MIDI/diff/manifest publication.
 MIDI and both sidecars are preflighted for resolved-path/inode aliases to the
 source and each other. All three are serialized and staged before publication;
 leaf entries are atomically replaced, never opened for writing through a link.
-Publication errors roll back existing artifacts. This is per-file atomicity, not
+Publication errors roll back existing artifacts; if the filesystem also refuses
+rollback, the error identifies retained private recovery files. This is per-file atomicity, not
 a crash-atomic multi-file transaction; concurrent writers to one bundle are not
 supported. These checks certify MIDI-event fidelity only, not audible f0, instrument quality, CLAP or FAD.
 Stem isolation and renderer capability enforcement are separate later tasks.

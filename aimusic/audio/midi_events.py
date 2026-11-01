@@ -309,6 +309,9 @@ def _update(state: State, msg: Any) -> None:
         if cc in (6, 38):
             nrpn = state.get(('selection', 0), 0)
             msb, lsb = (99, 98) if nrpn else (101, 100)
+            if ('opaque', 0) in state and any(k not in state for k in
+                                             (('selection', 0), ('cc', msb), ('cc', lsb))):
+                raise ChannelStateConflict('Data entry targets unknown parameter selection after opaque SysEx')
             parameter = state.get(('cc', msb), 127) * 128 + state.get(('cc', lsb), 127)
             if parameter != 16383:
                 key = ('nrpn' if nrpn else 'rpn', parameter)

@@ -640,3 +640,16 @@ class TestReviewRegressions(unittest.TestCase):
             (450, message('note_off', note=64)))
         with self.assertRaisesRegex(ChannelStateConflict, 'state'):
             self.retime(midi, [(150, 250), (50, 100)])
+
+    def test_data_entry_after_sysex_requires_known_parameter_selection(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        for selectors in ((), ((101, 0),), ((100, 0),)):
+            with self.subTest(selectors=selectors):
+                midi = channel_fixture(
+                    (100, mido.Message('sysex', data=(0x7e, 0x7f, 9, 1))),
+                    *((140, message('control_change', control=cc, value=value)) for cc, value in selectors),
+                    (150, message('control_change', control=6, value=12)),
+                    (200, message('note_on', note=60)),
+                    (250, message('note_off', note=60)))
+                with self.assertRaisesRegex(ChannelStateConflict, 'unknown.*SysEx|SysEx.*unknown'):
+                    self.retime(midi, [(120, 170)])
