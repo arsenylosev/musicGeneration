@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pretty_midi as pm
+if TYPE_CHECKING:
+    import pretty_midi as pm
 
 from aimusic.audio.manifest import content_hash_files, write_manifest
 
@@ -110,6 +111,8 @@ def analyze_midi(
     output_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Produce a versioned, content-hashed analysis JSON document (+ sidecar)."""
+    import pretty_midi as pm
+
     path = Path(midi_path)
     if not path.is_file():
         raise FileNotFoundError(f"MIDI file not found: {path}")

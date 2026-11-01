@@ -37,6 +37,32 @@ by the reviewer. The repository does not download, bundle, or commit one.
 
 Human audit: HTML report per run (stems, spectrograms, metrics, prompts).
 
+## Package integrity / reconciliation regression lane
+
+```bash
+python -m pytest tests/test_render_package.py tests/test_audio_entry.py tests/test_audio_reconcile.py tests/test_architecture.py -q
+```
+
+These tests need no native synth or SoundFont. Contract tests corrupt each
+payload, exercise aggregate-only v1 packages and aliases, and verify that a
+reused directory is not trusted or overwritten. New manifests identify the
+file and expected/actual SHA-256; legacy failures identify the aggregate's
+input group instead (see [contract](render-package-contract.md)).
+
+Reconciliation fixtures check original MIDI before groove: exact discrete
+fields, inclusive **0.001 BPM** and **one local source tick** tolerances,
+complete tempo/meter maps, per-track EOT, and trailing planner silence distinct
+from Score occupancy. A multi-channel 19-EDO fixture verifies logical source
+track counts, not audible tuning. Unknown name-derived roles are explicitly
+unavailable; declared planner roles remain authoritative. Program/count/drum
+mismatches fail even with valid package hashes. Warm-cache and stale-context
+tests prove validation cannot be bypassed; validate-only is checked in a fresh
+process for absence of synth/DSP imports.
+
+This lane does not certify downstream expressive-MIDI fidelity, recognizable
+instruments or f0 accuracy. Those require the later event/render/tuning checks
+and the separately enabled native lane.
+
 ## Risks
 
 | Risk | Mitigation |

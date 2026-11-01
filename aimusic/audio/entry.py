@@ -79,7 +79,7 @@ def render_audio(
         from aimusic.audio.orchestrator import Orchestrator
 
         orch = Orchestrator(config=cfg, cache_dir=Path(cfg["paths"]["cache_dir"]))
-        audio_out = orch.run(ctx.package.midi_path, output_dir=out_dir)
+        audio_out = orch.run(ctx, output_dir=out_dir)
 
     stems = audio_out / "stems"
     mix = stems / "rough_mix.wav"

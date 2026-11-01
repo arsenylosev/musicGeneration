@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from aimusic.audio.from_score import AudioPackageContext, from_score, validate_package
 from aimusic.audio.manifest import content_hash_files
 
 
@@ -131,8 +132,18 @@ class Orchestrator:
             },
         }
 
-    def run(self, midi_path: Path | str, *, output_dir: Path | str | None = None) -> Path:
+    def run(
+        self, midi_path: Path | str | AudioPackageContext, *,
+        output_dir: Path | str | None = None,
+    ) -> Path:
         """Execute analysis → expressivization → render (M1 spine)."""
+        context = None
+        validation = None
+        if isinstance(midi_path, AudioPackageContext):
+            # Re-open before cache access: files may have changed after admission.
+            context = from_score(midi_path.package.root)
+            validation = validate_package(context)
+            midi_path = context.package.midi_path
         midi_path = Path(midi_path)
         if not midi_path.is_file():
             raise FileNotFoundError(f"MIDI file not found: {midi_path}")
@@ -153,7 +164,18 @@ class Orchestrator:
         analysis_doc: dict[str, Any] | None = None
         expressive_midi = midi_path
 
-        if stages.get("analysis", True):
+        if context is not None:
+            analysis_doc = context.analysis_document()
+            if validation is not None:
+                analysis_doc["tracks"] = list(validation.reconciliation.tracks)
+                (out / f"{midi_path.stem}.reconciliation.json").write_text(
+                    json.dumps(validation.reconciliation.to_dict(), indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+            (out / f"{midi_path.stem}.analysis.json").write_text(
+                json.dumps(analysis_doc, indent=2, sort_keys=True), encoding="utf-8"
+            )
+        elif stages.get("analysis", True):
             subset: dict[str, Any] = {"code_version": code_version}
             key = self.cache_key("analysis", [midi_path], subset)
             cached = self.cached_path("analysis", key, ".analysis.json")
@@ -174,6 +196,7 @@ class Orchestrator:
             groove_spec = self._load_groove_spec()
             light = bool(self.config.get("groove", {}).get("light_cleanup", False))
             subset = {
+                "package_hash": context.package.content_hash if context else None,
                 "groove": groove_spec,
                 "light_cleanup": light,
                 "code_version": code_version,
@@ -205,6 +228,7 @@ class Orchestrator:
         if stages.get("render", True):
             render_cfg = self.config.get("render", {})
             render_subset = {
+                "package_hash": context.package.content_hash if context else None,
                 "sample_rate": render_cfg.get("sample_rate"),
                 "peak_dbfs": render_cfg.get("peak_dbfs", render_cfg.get("headroom_dbfs")),
                 "backend": render_cfg.get("backend", "simple"),

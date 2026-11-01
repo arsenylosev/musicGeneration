@@ -20,10 +20,10 @@ Suggested message: `fix(audio): verify RenderPackage integrity and reconcile sou
 
 Files: `aimusic/core/render_package.py`, `aimusic/audio/from_score.py`, `entry.py`, `analysis/from_midi.py`, new `analysis/reconcile.py`, focused tests and contract docs. Split each numbered slice if it exceeds a focused session; commit only once this vertical package-validation path is green.
 
-- [ ] 2.1 Add aggregate hash recomputation and additive per-file manifest digests while retaining valid v1 identities; verify new tests in `tests/test_render_package.py` cover score/MIDI/structure/tuning/beatstates corruption, manifest aliases, reused directories and legacy aggregate-only packages, with expected/actual digest diagnostics.
-- [ ] 2.2 Carry parsed tuning, verified identity and authoritative roles/count sources in the audio-owned context; verify `tests/test_audio_entry.py` proves full rendering receives planner data, validate-only allocates no synth, and architecture imports remain quarantined.
-- [ ] 2.3 Implement field-level reconciliation against original MIDI, aggregating MPE channels by source track and distinguishing Score duration from trailing planner silence; verify new `tests/test_audio_reconcile.py` covers exact discrete fields, 0.001 BPM and one-tick tolerances, meter/tempo maps, mismatched programs/counts, unavailable inferred roles and invalid drum metadata.
-- [ ] 2.4 Document aggregate versus per-file diagnostics and reconciliation tolerances in `docs/render-package-contract.md` / `docs/audio-testing.md`; run focused contract, entry, reconcile and architecture tests and inspect the C1 diff before committing.
+- [x] 2.1 Add aggregate hash recomputation and additive per-file manifest digests while retaining valid v1 identities; verify new tests in `tests/test_render_package.py` cover score/MIDI/structure/tuning/beatstates corruption, manifest aliases, reused directories and legacy aggregate-only packages, with expected/actual digest diagnostics.
+- [x] 2.2 Carry parsed tuning, verified identity and authoritative roles/count sources in the audio-owned context; verify `tests/test_audio_entry.py` proves full rendering receives planner data, validate-only allocates no synth, and architecture imports remain quarantined.
+- [x] 2.3 Implement field-level reconciliation against original MIDI, aggregating MPE channels by source track and distinguishing Score duration from trailing planner silence; verify new `tests/test_audio_reconcile.py` covers exact discrete fields, 0.001 BPM and one-tick tolerances, meter/tempo maps, mismatched programs/counts, unavailable inferred roles and invalid drum metadata.
+- [x] 2.4 Document aggregate versus per-file diagnostics and reconciliation tolerances in `docs/render-package-contract.md` / `docs/audio-testing.md`; run focused contract, entry, reconcile and architecture tests and inspect the C1 diff before committing.
 
 ## 3. Wheel-safe effective configuration — commit C2
 
