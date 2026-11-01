@@ -72,9 +72,9 @@ Files: `audio/render/registry.py`, `stems.py`, `orchestrator.py`, `bridge.py`, r
 
 Suggested message: `feat(audio): add optional FluidSynth instrument rendering`
 
-Files: new `audio/render/fluidsynth_r.py`, registry adapter, `pyproject.toml`, profiles, native/mocked tests and native setup docs. Retrieve the pinned adapter only; do not add a submodule or blindly vendor its pipeline.
+Files: new `audio/render/fluidsynth_r.py`, registry adapter, `pyproject.toml`, profiles, native/mocked tests and native setup docs. The exact pinned adapter was reviewed and found to have no discoverable license; do not add a submodule or copy its source. Implement clean-room from public APIs per the user's 2026-11-01 approval.
 
-- [ ] 7.1 Retrieve and review adapter/license/tests at `midi2audio_generative@46b3dfe`; record port provenance and add optional `[audio-render]` bindings without changing core dependencies. Verify adapter suitability and wheel metadata; stop for review if the source is unavailable or incompatible rather than changing the pin silently.
+- [ ] 7.1 Record the adapter/license/tests review at `midi2audio_generative@46b3dfe`, including the absence of discoverable licensing, and add optional `[audio-render]` bindings without changing core dependencies; verify wheel metadata and that the clean-room implementation copies no source from the pinned repository.
 - [ ] 7.2 Implement offline event-to-sample dispatch with native lifecycle cleanup, programs/banks, drums, sustain and pitch-wheel/RPN handling; verify mocked `tests/test_audio_fluidsynth.py` checks call order, tempo-map timing, resource cleanup and errors without native assets.
 - [ ] 7.3 Align frame counts to one configured horizon/release tail and implement deterministic mix headroom; verify stem/mix tests cover tail, finiteness, 0.95 default peak ceiling, active-window RMS >1e-5, click exclusion and preservation of silent tracks.
 - [ ] 7.4 Add opt-in `tests/test_audio_fluidsynth_integration.py` with a pinned local SoundFont hash/version record; verify an explicitly requested lane fails missing prerequisites, then run the eight-bar 12-EDO fixture checking roles/programs, sample rate, equal frames, RMS/peaks, cold-repeat/warm-cache evidence and elapsed time against the ~60-second target.
