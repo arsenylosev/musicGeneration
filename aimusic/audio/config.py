@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -56,6 +57,7 @@ class AudioConfig:
         raw.update(version=self.version, mode=self.mode)
         for name in ("render", "stages", "paths"):
             raw[name].update(asdict(getattr(self, name)))
+        _validate_json_values(raw)
         object.__setattr__(self, "raw", _freeze(raw))
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,8 +65,33 @@ class AudioConfig:
         return _thaw(self.raw)
 
 
+def _validate_json_values(
+    value: Any, path: str = "config", ancestors: frozenset[int] = frozenset(),
+) -> None:
+    """Reject YAML-only values before coercion or freezing can hide their types."""
+    if value is None or type(value) in (str, bool, int):
+        return
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError(f"{path}: numbers must be finite")
+        return
+    if not isinstance(value, (Mapping, list)):
+        raise ValueError(f"{path}: unsupported config value type {type(value).__name__}")
+    if id(value) in ancestors:
+        raise ValueError(f"{path}: recursive aliases are not JSON-like config values")
+    ancestors = ancestors | {id(value)}
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"{path}: mapping keys must be strings, got {type(key).__name__}")
+            _validate_json_values(item, f"{path}.{key}", ancestors)
+    else:
+        for index, item in enumerate(value):
+            _validate_json_values(item, f"{path}[{index}]", ancestors)
+
+
 def _freeze(value: Any) -> Any:
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
     if isinstance(value, list):
         return tuple(_freeze(item) for item in value)
@@ -153,6 +180,8 @@ def load_audio_config(profile: Path | str | None = None) -> AudioConfig:
     else:
         text = "{}"
     override = _require_mapping("Audio config root", yaml.safe_load(text))
+    _validate_json_values(raw)
+    _validate_json_values(override)
     for section in ("render", "stages", "paths"):
         if section in override:
             _require_mapping(section, override[section])

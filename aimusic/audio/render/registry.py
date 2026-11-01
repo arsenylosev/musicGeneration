@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from aimusic.audio.config import normalize_routing
 from aimusic.audio.render import simple_r
 
 RendererFn = Callable[..., Any]
@@ -25,23 +26,14 @@ _BACKENDS: dict[str, RendererFn] = {
 
 
 def get_renderer_name(role: str, *, config: dict[str, Any] | None = None) -> str:
-    """Return the configured renderer backend name for an instrument role."""
+    """Look up the default route; tuning capability dispatch remains separate."""
     if config:
-        overrides = config.get("render", {}).get("role_map", {})
-        if role in overrides:
-            name = str(overrides[role])
-            if name == "fluidsynth":
-                allow = bool(config.get("render", {}).get("allow_simple_fallback", True))
-                if allow:
-                    return "simple"
-                raise NotImplementedError(
-                    "fluidsynth backend is deferred; use render.backend: simple "
-                    "or allow_simple_fallback: true"
-                )
-            return name
-        backend = str(config.get("render", {}).get("backend", "simple"))
+        render = normalize_routing(config.get("render", {}))
+        canonical_role = "comping" if role == "comp" else role
+        route = render["routing"].get(canonical_role, {})
+        backend = str(route.get("default", render.get("backend", "simple")))
         if backend == "fluidsynth":
-            if bool(config.get("render", {}).get("allow_simple_fallback", True)):
+            if bool(render.get("allow_simple_fallback", True)):
                 return "simple"
             raise NotImplementedError(
                 "fluidsynth backend is deferred to a later PR; "

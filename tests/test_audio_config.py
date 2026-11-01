@@ -246,3 +246,66 @@ class TestSoundFontResolution(unittest.TestCase):
             with patch.object(Path, "open", side_effect=PermissionError("denied")):
                 with self.assertRaisesRegex(ValueError, r"SoundFont.*--soundfont.*readable"):
                     resolve_soundfont(config, explicit=asset)
+
+
+class TestAudioConfigValueTypes(unittest.TestCase):
+    def test_unsupported_nested_yaml_types_fail_at_their_field(self) -> None:
+        cases = (
+            ("!!set {one: null}", r"config\.custom\.options\[0\]\.members.*set"),
+            ("!!omap [{one: {nested: []}}]", r"config\.custom\.options\[0\]\.members\[0\].*tuple"),
+            ("2001-01-01", r"config\.custom\.options\[0\]\.members.*date"),
+            ("!!binary YQ==", r"config\.custom\.options\[0\]\.members.*bytes"),
+            (".nan", r"config\.custom\.options\[0\]\.members.*finite"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unsupported.yaml"
+            for value, diagnostic in cases:
+                path.write_text(f"custom:\n  options:\n    - members: {value}\n")
+                with self.subTest(value=value), self.assertRaisesRegex(ValueError, diagnostic):
+                    load_audio_config(path)
+
+    def test_unsupported_values_fail_before_typed_coercion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unsupported.yaml"
+            path.write_text("mode: !!set {one: null}\n")
+            with self.assertRaisesRegex(ValueError, r"config\.mode.*set"):
+                load_audio_config(path)
+
+    def test_non_string_mapping_keys_are_rejected_with_the_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unsupported.yaml"
+            path.write_text("custom:\n  options: {1: value}\n")
+            with self.assertRaisesRegex(ValueError, r"config\.custom\.options.*keys.*str"):
+                load_audio_config(path)
+
+    def test_recursive_yaml_alias_is_not_a_json_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unsupported.yaml"
+            path.write_text("custom: &loop {again: *loop}\n")
+            with self.assertRaisesRegex(ValueError, r"config\.custom\.again.*recursive"):
+                load_audio_config(path)
+
+    def test_dataclass_replacement_cannot_admit_mutable_sets(self) -> None:
+        config = load_audio_config()
+        raw = config.to_dict()
+        raw["custom"] = {"nested": [{"values": {"one"}}]}
+        with self.assertRaisesRegex(ValueError, r"config\.custom\.nested\[0\]\.values.*set"):
+            replace(config, raw=raw)
+
+    def test_json_like_values_and_non_recursive_aliases_remain_detached(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "supported.yaml"
+            path.write_text(
+                "custom:\n  first: &data {values: [null, true, 3, 1.25, text]}\n"
+                "  second: *data\n"
+            )
+            config = load_audio_config(path)
+        raw = config.to_dict()
+        expected = [None, True, 3, 1.25, "text"]
+        self.assertEqual(raw["custom"]["first"]["values"], expected)
+        self.assertEqual(json.loads(json.dumps(raw)), raw)
+        raw["custom"]["first"]["values"].append("changed")
+        self.assertEqual(raw["custom"]["second"]["values"], expected)
+        self.assertEqual(config.to_dict()["custom"]["first"]["values"], expected)

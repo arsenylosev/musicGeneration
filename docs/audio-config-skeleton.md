@@ -38,7 +38,10 @@ including `config/audio.default.yaml`, remain accepted. Only bare string names
 `"./preview"` for a file with that name. Missing files and non-mapping YAML fail.
 `AudioConfig.raw` is recursively read-only; conversions retain all settings
 and never reopen the original YAML. `source_path` is the resolved explicit
-file path, or `None` for packaged profiles.
+file path, or `None` for packaged profiles. Values must be JSON-like: null,
+strings, booleans, finite numbers, lists and string-keyed mappings. YAML sets,
+ordered maps/pairs, dates, binary values and recursive aliases are rejected
+with their field path rather than retained as shared mutable objects.
 
 ## Canonical routing and compatibility
 
@@ -53,7 +56,9 @@ render:
 `render.routing.comping: {default: fluidsynth, microtonal: fluidsynth}`.
 The role alias `comp` normalizes to `comping`. Equivalent or complementary
 aliases merge; contradictory assignments for the same role and tuning class
-fail with both definitions in the diagnostic. A profile can override shipped
+fail with both definitions in the diagnostic. The existing registry consumes
+canonical `default` routes and accepts legacy direct dictionaries; tuning-aware
+capability dispatch remains a later slice. A profile can override shipped
 defaults; conflicting aliases *within that profile* cannot mask one another.
 Renderer capability validation still decides whether a requested route can
 preserve the input's tuning; a route is not a tuning certificate.
