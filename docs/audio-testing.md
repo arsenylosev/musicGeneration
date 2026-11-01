@@ -4,6 +4,24 @@ From `AUDIO_PIPELINE_ARCHITECTURE.pdf` §§8–9.
 
 ## Testing strategy
 
+### Verification lanes
+
+1. **Core / architecture (required):** run the symbolic suite, contract tests,
+   lint, and type checks with no audio-native dependencies loaded.
+2. **Lightweight audio (required):** run config, MIDI-event, reconciliation,
+   cache, safety, and mocked-renderer tests with the CI-safe `simple` backend.
+   This lane requires no FluidSynth installation, SoundFont, GPU, credentials,
+   or network service.
+3. **Real FluidSynth (explicit opt-in):** set
+   `AIMUSIC_RUN_FLUIDSYNTH_TESTS=1` and provide the approved SoundFont path and
+   SHA-256. Once explicitly selected, missing FluidSynth bindings/native
+   library/SoundFont are setup failures, not skips. This lane records native
+   versions, asset license/hash, signal metrics, tuning evidence, and elapsed
+   time.
+
+The real lane must use a locally supplied, license-approved SoundFont selected
+by the reviewer. The repository does not download, bundle, or commit one.
+
 | Component | Test approach |
 |-----------|---------------|
 | `render_package` | Contract invariants on every fixture; schema validation |
