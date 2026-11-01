@@ -63,6 +63,16 @@ This lane does not certify downstream expressive-MIDI fidelity, recognizable
 instruments or f0 accuracy. Those require the later event/render/tuning checks
 and the separately enabled native lane.
 
+## Event-preserving groove regression lane
+
+The implemented [event/groove semantics](audio-midi-events.md) have asset-free
+round-trip, tempo-map, expression, sustain-conflict and independent 19-EDO pitch
+reconstruction tests. These are MIDI-event checks, not native audio measurements.
+
+```bash
+python -m pytest tests/test_audio_midi_events.py tests/test_audio_groove.py tests/test_architecture.py -q
+```
+
 ## Risks
 
 | Risk | Mitigation |

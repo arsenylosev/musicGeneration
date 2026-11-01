@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import io
 import json
 import math
 from pathlib import Path
+from fractions import Fraction
 from typing import Any
 
+import mido
 import pretty_midi as pm
 
 from aimusic.audio.groove.spec import GrooveSpec, parse_groove_spec
 from aimusic.audio.manifest import write_manifest
+from aimusic.audio.midi_events import MidiEvents, NoteTiming, add_ghosts, rational, retime
 
 # Fixed seed for deterministic jitter when jitter_sd is set.
 _JITTER_SEED = 0x4D3241
@@ -102,125 +106,94 @@ def _velocity_scale(
     return scale
 
 
+def _apply_to_events(
+    midi: MidiEvents,
+    spec: GrooveSpec,
+    *,
+    light_cleanup: bool = False,
+) -> tuple[MidiEvents, dict[str, Any]]:
+    """Transform source events in musical time, then validate channel state."""
+    tempo = midi.tempo_map
+    depth = 0.0 if light_cleanup else 1.0
+    names = {e.track: e.message.name.lower() for e in midi.events
+             if e.message.type == "track_name"}
+    targets = {}
+    ghosts = []
+    note_diffs: list[dict[str, Any]] = []
+    for counter, note in enumerate(sorted(midi.notes, key=lambda n: (n.track, n.on)), 1):
+        name = names.get(note.track, "")
+        role = next((r for r in ("drums", "bass", "lead", "comp", "pads", "ornament", "piano")
+                     if r in name), "drums" if note.channel == 9 else "comp")
+        beat = note.start / midi.ticks_per_beat
+        start_seconds = tempo.seconds(note.start)
+        offset = Fraction(0)
+        if depth and spec.swing is not None and role in (spec.swing.applies_to or []):
+            swing_beats = _swing_offset_sec(beat, 1.0, spec.swing.ratio, spec.swing.subdivision)
+            offset += tempo.seconds(Fraction(note.start) + rational(swing_beats) * midi.ticks_per_beat) - start_seconds
+        if depth:
+            offset += rational(_microtiming_ms_for_role(role, beat, 1.0, spec.microtiming_ms, counter)) / 1000
+        if depth and spec.anticipation is not None:
+            ant = getattr(spec.anticipation, role, None)
+            if ant is not None and ant.push_ms and ant.prob >= 1.0:
+                meter_tick, numerator, denominator = 0, 4, 4
+                for e in midi.events:
+                    if e.tick <= note.start and e.message.type == "time_signature":
+                        meter_tick, numerator, denominator = e.tick, e.message.numerator, e.message.denominator
+                bar_ticks = Fraction(midi.ticks_per_beat * numerator * 4, denominator)
+                bar_start = note.start - (note.start - meter_tick) % bar_ticks
+                if start_seconds - tempo.seconds(bar_start) < Fraction(3, 100):
+                    offset -= rational(ant.push_ms[0]) / 1000
+        new_start = tempo.shift(note.start, offset)
+        duration = tempo.seconds(note.end) - start_seconds
+        if depth and spec.articulation is not None:
+            art = getattr(spec.articulation, role, None)
+            if art is not None and art.duration_scale is not None:
+                duration *= rational(art.duration_scale)
+        new_end = note.end + round(tempo.tick(tempo.seconds(new_start) + duration) - note.end)
+        velocity = max(1, min(127, round(note.velocity * _velocity_scale(role, beat, 1.0, spec.velocity, depth))))
+        targets[note.id] = NoteTiming(new_start, new_end, velocity)
+        actual_offset = tempo.seconds(new_start) - start_seconds
+        note_diffs.append({"role": role, "pitch": note.pitch, "offset_sec": float(actual_offset),
+                           "offset_ticks": new_start - note.start, "velocity_in": note.velocity,
+                           "velocity_out": velocity})
+        if depth and spec.velocity and spec.velocity.ghost_notes and role in spec.velocity.ghost_notes:
+            ghost = spec.velocity.ghost_notes[role]
+            if ghost.prob >= 1.0:
+                ghost_start = new_start + round(Fraction(midi.ticks_per_beat, 8))
+                ghost_end = ghost_start + max(1, round(tempo.tick(tempo.seconds(ghost_start) + duration * Fraction(3, 10)) - ghost_start))
+                ghosts.append((note.id, NoteTiming(ghost_start, ghost_end,
+                                                   max(1, min(127, round(velocity * ghost.vel_scale))))))
+    out = retime(midi, targets)
+    if ghosts:
+        out = add_ghosts(out, ghosts)
+    return out, {
+        "notes_in": len(midi.notes), "notes_out": len(out.notes), "ghost_inserted": len(ghosts),
+        "light_cleanup": light_cleanup,
+        "mean_abs_offset_ms": sum(abs(d["offset_sec"]) for d in note_diffs) / max(1, len(note_diffs)) * 1000,
+        "note_diffs": note_diffs,
+    }
+
+
 def _apply_to_midi(
     midi: pm.PrettyMIDI,
     spec: GrooveSpec,
     *,
     light_cleanup: bool = False,
 ) -> tuple[pm.PrettyMIDI, dict[str, Any]]:
-    """Return new PrettyMIDI + diff report. light_cleanup skips expressive transforms."""
-    spb = _seconds_per_beat(midi)
-    ticks_per_beat = float(midi.resolution)
-    sec_per_tick = spb / ticks_per_beat
+    """Legacy in-memory adapter; information already lost by PrettyMIDI is unrecoverable.
 
-    out = pm.PrettyMIDI(initial_tempo=60.0 / spb)
-    out.time_signature_changes = list(midi.time_signature_changes)
-
-    note_diffs: list[dict[str, Any]] = []
-    ghost_inserted = 0
-    total_in = 0
-    total_out = 0
-    note_counter = 0
-
-    depth = 0.0 if light_cleanup else 1.0
-
-    for inst in midi.instruments:
-        role = _role_for_instrument(inst)
-        new_inst = pm.Instrument(program=inst.program, is_drum=inst.is_drum, name=inst.name)
-        for n in inst.notes:
-            total_in += 1
-            note_counter += 1
-            start = float(n.start)
-            end = float(n.end)
-            vel = int(n.velocity)
-            offset_sec = 0.0
-
-            if depth > 0 and spec.swing is not None and role in (spec.swing.applies_to or []):
-                offset_sec += _swing_offset_sec(
-                    start, spb, float(spec.swing.ratio), int(spec.swing.subdivision)
-                )
-
-            if depth > 0:
-                offset_sec += (
-                    _microtiming_ms_for_role(
-                        role, start, spb, spec.microtiming_ms, note_counter
-                    )
-                    / 1000.0
-                )
-
-            if depth > 0 and spec.anticipation is not None:
-                ant = getattr(spec.anticipation, role, None)
-                if ant is not None and ant.push_ms:
-                    bar_sec = spb * 4.0
-                    pos_in_bar = start % bar_sec
-                    if pos_in_bar < 0.03 and ant.prob >= 1.0:
-                        push = float(ant.push_ms[0]) / 1000.0
-                        offset_sec -= push
-
-            new_start = max(0.0, start + offset_sec)
-            dur = max(1e-4, end - start)
-
-            if depth > 0 and spec.articulation is not None:
-                art = getattr(spec.articulation, role, None)
-                if art is not None and art.duration_scale is not None:
-                    dur *= float(art.duration_scale)
-
-            new_end = new_start + dur
-
-            vscale = _velocity_scale(role, start, spb, spec.velocity, depth=depth)
-            new_vel = max(1, min(127, round(vel * vscale)))
-
-            offset_ticks = offset_sec / sec_per_tick if sec_per_tick else 0.0
-            note_diffs.append(
-                {
-                    "role": role,
-                    "pitch": n.pitch,
-                    "offset_sec": offset_sec,
-                    "offset_ticks": offset_ticks,
-                    "velocity_in": vel,
-                    "velocity_out": new_vel,
-                }
-            )
-            new_inst.notes.append(
-                pm.Note(velocity=new_vel, pitch=n.pitch, start=new_start, end=new_end)
-            )
-            total_out += 1
-
-            if (
-                depth > 0
-                and spec.velocity
-                and spec.velocity.ghost_notes
-                and role in spec.velocity.ghost_notes
-            ):
-                gn = spec.velocity.ghost_notes[role]
-                if gn.prob >= 1.0:
-                    g_start = new_start + (spb / 8.0)
-                    g_vel = max(1, min(127, round(new_vel * float(gn.vel_scale))))
-                    new_inst.notes.append(
-                        pm.Note(
-                            velocity=g_vel,
-                            pitch=n.pitch,
-                            start=g_start,
-                            end=g_start + dur * 0.3,
-                        )
-                    )
-                    ghost_inserted += 1
-                    total_out += 1
-
-        new_inst.notes.sort(key=lambda x: (x.start, x.pitch))
-        out.instruments.append(new_inst)
-
-    report = {
-        "notes_in": total_in,
-        "notes_out": total_out,
-        "ghost_inserted": ghost_inserted,
-        "light_cleanup": light_cleanup,
-        "mean_abs_offset_ms": (
-            sum(abs(d["offset_sec"]) for d in note_diffs) / max(1, len(note_diffs)) * 1000.0
-        ),
-        "note_diffs": note_diffs,
-    }
-    return out, report
+    The public file API never takes this path. Existing analysis callers keep
+    their object/return type while using the same event transform underneath.
+    """
+    buffer = io.BytesIO()
+    midi.write(buffer)
+    buffer.seek(0)
+    out, report = _apply_to_events(MidiEvents.from_mido(mido.MidiFile(file=buffer)), spec,
+                                   light_cleanup=light_cleanup)
+    rendered = io.BytesIO()
+    out.to_mido().save(file=rendered)
+    rendered.seek(0)
+    return pm.PrettyMIDI(rendered), report
 
 
 def apply_groove(
@@ -243,8 +216,8 @@ def apply_groove(
     if light_cleanup is None:
         light_cleanup = bool(cfg.get("groove", {}).get("light_cleanup", False))
 
-    midi = pm.PrettyMIDI(str(path))
-    out_midi, report = _apply_to_midi(midi, validated, light_cleanup=light_cleanup)
+    midi = MidiEvents.load(path)
+    out_midi, report = _apply_to_events(midi, validated, light_cleanup=light_cleanup)
 
     if output_path is None:
         out_dir = Path(cfg.get("paths", {}).get("output_dir", "outputs"))
@@ -254,7 +227,9 @@ def apply_groove(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    out_midi.write(str(output_path))
+    if output_path.resolve() == path.resolve() or (output_path.exists() and output_path.samefile(path)):
+        raise ValueError("Groove output must not overwrite the source MIDI")
+    out_midi.save(output_path)
     report_path = Path(str(output_path) + ".diff.json")
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 

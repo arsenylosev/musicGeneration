@@ -42,10 +42,10 @@ Suggested message: `fix(audio): preserve MIDI channel state through groove trans
 
 Files: new `audio/midi_events.py`, `audio/groove/apply.py`, event fixtures/tests and groove documentation.
 
-- [ ] 4.1 Introduce lossless absolute-tick event parsing/serialization and note pairing; verify new `tests/test_audio_midi_events.py` covers type-0/type-1, stable same-tick order, tempo/meter changes, RPN, bends, sustain, aftertouch and MTS SysEx round trips, rejecting ambiguous unsupported arrangements.
-- [ ] 4.2 Replace note-only PrettyMIDI reconstruction with tempo-aware event transforms and round-half-even tick handling; verify existing groove tests plus new cases retain all non-note event payloads, expected note count/velocity behavior, tempo maps and note-associated expression.
-- [ ] 4.3 Detect retiming conflicts involving bend trajectories, channel reuse and sustained notes; verify deterministic overlap fixtures reject incompatible pitch states and safe 19-EDO retiming reconstructs pitches within one cent without changing intended note identities.
-- [ ] 4.4 Document supported expression semantics and explicit conflict diagnostics; run the groove/event and architecture suites, preserving existing property tests, before committing C3.
+- [x] 4.1 Introduce lossless absolute-tick event parsing/serialization and note pairing; verify new `tests/test_audio_midi_events.py` covers type-0/type-1, stable same-tick order, tempo/meter changes, RPN, bends, sustain, aftertouch and MTS SysEx round trips, rejecting ambiguous unsupported arrangements.
+- [x] 4.2 Replace note-only PrettyMIDI reconstruction with tempo-aware event transforms and round-half-even tick handling; verify existing groove tests plus new cases retain all non-note event payloads, expected note count/velocity behavior, tempo maps and note-associated expression.
+- [x] 4.3 Detect retiming conflicts involving bend trajectories, channel reuse and sustained notes; verify deterministic overlap fixtures reject incompatible pitch states and safe 19-EDO retiming reconstructs pitches within one cent without changing intended note identities.
+- [x] 4.4 Document supported expression semantics and explicit conflict diagnostics; run the groove/event and architecture suites, preserving existing property tests, before committing C3.
 
 ## 5. Safe event-preserving stem isolation — commit C4 / review gate A
 

@@ -147,5 +147,122 @@ class TestAudioGroove(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(_audio_spine_available(), "requires audio extras")
+class TestEventGroove(unittest.TestCase):
+    def apply(self, midi, spec, **kwargs):
+        from aimusic.audio.groove.apply import apply_groove
+        from aimusic.audio.midi_events import MidiEvents
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        source, out = Path(tmp.name) / 'source.mid', Path(tmp.name) / 'out.mid'
+        midi.save(source)
+        original = source.read_bytes()
+        apply_groove(source, spec, output_path=out, **kwargs)
+        self.assertEqual(source.read_bytes(), original)
+        return MidiEvents.load(out), json.loads(Path(str(out) + '.diff.json').read_text())
+
+    def test_public_path_never_uses_pretty_midi_and_preserves_global_payloads(self):
+        from unittest.mock import patch
+        from tests.test_audio_midi_events import fixture, signature
+        source = fixture()
+        with patch('pretty_midi.PrettyMIDI', side_effect=AssertionError('lossy authority')):
+            out, report = self.apply(source, {}, light_cleanup=True)
+        self.assertEqual(signature(source), signature(out.to_mido()))
+        self.assertEqual(report['notes_in'], report['notes_out'])
+
+    def test_tempo_map_changes_grid_and_round_half_even_offsets(self):
+        import mido
+        from tests.test_audio_midi_events import track
+        midi = mido.MidiFile(type=0, ticks_per_beat=480)
+        midi.tracks = [track(
+            (0, mido.MetaMessage('track_name', name='lead')),
+            (0, mido.MetaMessage('set_tempo', tempo=500000)),
+            (480, mido.MetaMessage('set_tempo', tempo=1000000)),
+            (721, mido.Message('note_on', note=60, velocity=80)),
+            (800, mido.Message('note_off', note=60)),
+            (1200, mido.MetaMessage('end_of_track')))]
+        out, report = self.apply(midi, {'microtiming_ms': {'lead': {'global_offset': 3.125}},
+                                       'velocity': {'accent_map_16': [1, 1, 1, 1, 1, 1, .5, 1]}})
+        self.assertEqual(out.notes[0].start, 723)  # 1.5 ticks -> +2, not round(722.5)
+        self.assertEqual(out.notes[0].end, 802)
+        self.assertEqual(out.notes[0].velocity, 40)  # beat grid, not initial-tempo seconds
+        self.assertEqual(report['note_diffs'][0]['offset_ticks'], 2)
+        self.assertEqual(out.tempo_map.changes, ((0, 500000), (480, 1000000)))
+
+    def test_expression_and_note_endpoints_share_seconds_offset_across_tempo_change(self):
+        from tests.test_audio_midi_events import fixture
+        out, _ = self.apply(fixture(), {'microtiming_ms': {'lead': {'global_offset': 50}}})
+        self.assertEqual((out.notes[0].start, out.notes[0].end), (148, 524))
+        self.assertEqual(next(e.tick for e in out.events if e.message.type == 'aftertouch'), 198)
+        self.assertEqual(next(e.tick for e in out.events if e.message.type == 'polytouch'), 223)
+        self.assertEqual([e.tick for e in out.events if e.message.type == 'pitchwheel'], [148, 624])
+
+    def test_ghosts_count_velocity_and_ambiguous_overlap_rejection(self):
+        from tests.test_audio_midi_events import channel_fixture, message
+        from aimusic.audio.midi_events import ChannelStateConflict
+        spec = {'velocity': {'ghost_notes': {'lead': {'prob': 1, 'vel_scale': .5}}}}
+        midi = channel_fixture((100, message('note_on', note=60, velocity=80)),
+                               (130, message('note_off', note=60)))
+        out, report = self.apply(midi, spec)
+        self.assertEqual((report['notes_in'], report['notes_out'], report['ghost_inserted']), (1, 2, 1))
+        self.assertEqual([n.velocity for n in out.notes], [80, 40])
+        midi = channel_fixture((100, message('note_on', note=60)),
+                               (400, message('note_off', note=60)))
+        with self.assertRaisesRegex(ChannelStateConflict, 'ghost.*overlap'):
+            self.apply(midi, spec)
+
+    def test_input_cannot_be_overwritten_via_output_alias(self):
+        from aimusic.audio.groove.apply import apply_groove
+        from tests.test_audio_midi_events import fixture
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'input.mid'
+            fixture().save(path)
+            original = path.read_bytes()
+            alias = Path(tmp) / 'alias.mid'
+            alias.hardlink_to(path)
+            for out in (path, alias):
+                with self.assertRaisesRegex(ValueError, 'source|input'):
+                    apply_groove(path, {}, output_path=out)
+                self.assertEqual(path.read_bytes(), original)
+
+    def test_generated_multichannel_19edo_fixture_has_independent_pitch_evidence(self):
+        import mido
+        from aimusic.core.config import EDOConfig
+        from aimusic.core.core_types import NoteEvent, Score
+        from aimusic.render import render_midi
+        from aimusic.theory.edo import EDO
+        config = EDOConfig(n=19, base_tuning=60.125, pitch_bend_range=48)
+        score = Score(note_events=(
+            NoteEvent(ton=240, toff=480, h=1, v=.8, track='lead'),
+            NoteEvent(ton=240, toff=480, h=5, v=.7, track='lead'),
+            NoteEvent(ton=720, toff=960, h=8, v=.6, track='lead'),
+        ))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'generated.mid'
+            render_midi(score, EDO(config), str(path))
+            out, report = self.apply(mido.MidiFile(path), {
+                'microtiming_ms': {'lead': {'global_offset': 25}},
+                'articulation': {'lead': {'duration_scale': .9}},
+            })
+        self.assertEqual((report['notes_in'], report['notes_out']), (3, 3))
+        self.assertGreater(len({n.channel for n in out.notes}), 1)
+        bends, ranges, selectors, observed = {}, {}, {}, []
+        for e in out.events:
+            msg = e.message
+            if msg.type == 'control_change':
+                selector = selectors.setdefault(msg.channel, [127, 127])
+                if msg.control in (101, 100):
+                    selector[msg.control == 100] = msg.value
+                if msg.control == 6 and selector == [0, 0]:
+                    ranges[msg.channel] = msg.value
+            if msg.type == 'pitchwheel':
+                bends[msg.channel] = msg.pitch
+            if msg.type == 'note_on' and msg.velocity:
+                observed.append(msg.note + bends.get(msg.channel, 0) / 8192 * ranges.get(msg.channel, 2))
+        intended = [config.base_tuning + n.h * 12 / 19 for n in score.note_events]
+        for expected, actual in zip(intended, observed, strict=True):
+            self.assertLessEqual(abs(expected - actual) * 100, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
