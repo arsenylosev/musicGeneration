@@ -114,7 +114,9 @@ def render(request: RenderRequest, *, binding: Any = None) -> Path:
         sfid = synth.sfload(str(request.soundfont), update_midi_preset=0)
         if sfid < 0:
             raise RuntimeError(f'FluidSynth sfload failed: {request.soundfont}')
-        banks = [[0, 0] for _ in range(16)]
+        # Absence means no bank CC was received, distinct from explicit zero.
+        # Each CC updates one half; the other retains its value (initially zero).
+        banks: dict[int, list[int]] = {}
         assigned = set()
         cursor = 0
 
@@ -139,10 +141,11 @@ def render(request: RenderRequest, *, binding: Any = None) -> Path:
             if msg.type == 'control_change':
                 _checked(synth, 'cc', channel, msg.control, msg.value)
                 if msg.control in (0, 32):
-                    banks[channel][msg.control // 32] = msg.value
+                    banks.setdefault(channel, [0, 0])[msg.control // 32] = msg.value
             elif msg.type == 'program_change':
-                msb, lsb = banks[channel]
-                bank = 128 if channel == 9 else msb * 128 + lsb
+                # Bank 128 is only the percussion default, never an override.
+                msb, lsb = banks.get(channel, [1 if channel == 9 else 0, 0])
+                bank = msb * 128 + lsb
                 _checked(synth, 'program_select', channel, sfid, bank, msg.program)
                 assigned.add(channel)
             elif msg.type == 'pitchwheel':

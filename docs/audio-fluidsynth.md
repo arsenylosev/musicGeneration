@@ -76,10 +76,17 @@ harness delivered here. Do not interpret mocked tests as native acceptance.
   Stable same-tick order; blocks at most 1024 frames split at every event.
   This proves requested dispatch positions, **not** sub-block native acoustic
   latency (FluidSynth has its own internal synthesis buffering).
-- Pending bank CCs latch at program changes. Exact `program_select` rejects missing
-  presets rather than silently substituting another instrument. Without a program
-  change, melodic channels use bank 0/program 0; channel **9** uses bank 128 and
-  drum keys. Drum program changes choose the requested kit in bank 128.
+- Pending bank CCs latch at program changes, using the public `program_select`
+  API and **MMA `CC0*128+CC32` on every channel**, including channel **9**.
+  With neither bank controller received, program changes use bank 0 on melodic
+  channels and bank 128 on channel 9. Explicit zero selects bank 0, not a default.
+  CC0/CC32 are independent, channel-local state: an unseen half is zero; a partial
+  update retains the other half. Thus CC32=3 alone selects bank 3; CC0=1 plus CC32=3
+  selects bank 131; subsequent CC0=2 selects 259, then CC32=4 selects 260.
+  Program changes and CC121 do not clear bank state. Bank CCs alone never change
+  the current preset: without a program change, the initial note uses program 0
+  in the default bank. Channel 9 retains drum keys. Missing exact bank/program
+  presets fail; the adapter never substitutes bank 128 for an explicit bank.
 - All CCs, including sustain and RPN select/data, are delivered in source order;
   pitch wheels remain signed. No hand-reconstructed RPN approximation.
 - SysEx (including MTS/reset) and pressure messages fail before allocation. The

@@ -100,6 +100,92 @@ class TestFluidSynth(unittest.TestCase):
         self.synth.start.assert_not_called()
         self.synth.delete.assert_called_once_with()
 
+    def write_percussion(self, messages):
+        midi = mido.MidiFile(type=0, ticks_per_beat=480)
+        midi.tracks = [_event_track(*[(0, msg) for msg in messages],
+                                    (240, mido.Message('note_on', channel=9, note=36, velocity=100)),
+                                    (480, mido.Message('note_off', channel=9, note=36)))]
+        midi.save(self.source)
+
+    def test_percussion_default_bank_with_and_without_program_change(self):
+        for program in (None, 8):
+            with self.subTest(program=program):
+                self.setUp()
+                messages = [] if program is None else [mido.Message('program_change', channel=9, program=program)]
+                self.write_percussion(messages)
+                self.render()
+                self.assertEqual([args for _, method, args in self.events if method == 'program_select'],
+                                 [(9, 7, 128, program or 0)])
+
+    def test_percussion_explicit_mma_bank_including_zero_and_reversed_cc_order(self):
+        for controls, bank in ((((0, 1), (32, 3)), 131), (((32, 3), (0, 1)), 131),
+                               (((0, 0), (32, 0)), 0)):
+            with self.subTest(controls=controls):
+                self.setUp()
+                self.write_percussion([mido.Message('control_change', channel=9, control=c, value=v)
+                                       for c, v in controls] + [mido.Message('program_change', channel=9, program=8)])
+                self.render()
+                self.assertEqual([args for _, method, args in self.events if method == 'cc'],
+                                 [(9, c, v) for c, v in controls])
+                self.assertEqual([args for _, method, args in self.events if method == 'program_select'],
+                                 [(9, 7, bank, 8)])
+
+    def test_percussion_partial_banks_retain_other_controller_and_are_channel_local(self):
+        # Never-seen CC halves are zero, not an invented CC0=1 for the drum default.
+        for first_control, first_value, first_bank in ((0, 2, 256), (32, 3, 3), (32, 0, 0)):
+            with self.subTest(first_control=first_control, first_value=first_value):
+                self.setUp()
+                controls = [(first_control, first_value), (0, 1), (32, 3), (0, 2), (32, 4)]
+                # Program changes, other CCs (including reset-all-controllers), and
+                # bank messages on another channel must not clear either bank half.
+                messages = [mido.Message('program_change', channel=9, program=0)]
+                for program, (control, value) in enumerate(controls, 1):
+                    messages += [mido.Message('control_change', channel=9, control=control, value=value),
+                                 mido.Message('control_change', channel=9, control=121, value=0),
+                                 mido.Message('control_change', channel=2, control=32, value=99),
+                                 mido.Message('program_change', channel=9, program=program)]
+                messages.append(mido.Message('program_change', channel=9, program=6))
+                self.write_percussion(messages)
+                self.render()
+                after_msb = 131 if first_control == 32 and first_value == 3 else 128
+                expected_banks = [128, first_bank, after_msb, 131, 259, 260, 260]
+                self.assertEqual([args for _, method, args in self.events if method == 'program_select'],
+                                 [(9, 7, bank, program) for program, bank in enumerate(expected_banks)])
+
+    def test_percussion_bank_ccs_wait_for_program_change(self):
+        midi = mido.MidiFile(type=0, ticks_per_beat=480)
+        midi.tracks = [_event_track(
+            (0, mido.Message('control_change', channel=9, control=0, value=1)),
+            (0, mido.Message('control_change', channel=9, control=32, value=3)),
+            (0, mido.Message('note_on', channel=9, note=36, velocity=100)),
+            (120, mido.Message('note_off', channel=9, note=36)),
+            (240, mido.Message('program_change', channel=9, program=8)),
+            (240, mido.Message('note_on', channel=9, note=38, velocity=100)),
+            (360, mido.Message('control_change', channel=9, control=32, value=4)),
+            (480, mido.Message('note_off', channel=9, note=38)),
+            (480, mido.Message('note_on', channel=9, note=36, velocity=100)),
+            (600, mido.Message('note_off', channel=9, note=36)),
+            (720, mido.Message('program_change', channel=9, program=8)))]
+        midi.save(self.source)
+        self.render()
+        self.assertEqual([event for event in self.events if event[1] == 'program_select'],
+                         [(0, 'program_select', (9, 7, 128, 0)),
+                          (2000, 'program_select', (9, 7, 131, 8)),
+                          (6000, 'program_select', (9, 7, 132, 8))])
+
+    def test_unavailable_explicit_percussion_preset_fails_without_substitution(self):
+        self.write_percussion([mido.Message('control_change', channel=9, control=0, value=1),
+                               mido.Message('control_change', channel=9, control=32, value=3),
+                               mido.Message('program_change', channel=9, program=8)])
+        self.synth.program_select.side_effect = None
+        self.synth.program_select.return_value = -1
+        with self.assertRaisesRegex(RuntimeError, 'program_select'):
+            self.render()
+        self.synth.program_select.assert_called_once_with(9, 7, 131, 8)
+        self.synth.noteon.assert_not_called()
+        self.synth.delete.assert_called_once_with()
+        self.assertFalse(self.request.output_path.exists())
+
     def test_no_cumulative_sample_rounding_drift(self):
         midi = mido.MidiFile(type=0, ticks_per_beat=960)
         midi.tracks = [_event_track(*[(tick, mido.Message('control_change', control=7, value=90))
