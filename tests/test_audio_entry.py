@@ -103,6 +103,21 @@ class TestAudioEntry(unittest.TestCase):
                 self.assertIsInstance(context, AudioPackageContext)
                 self.assertEqual(context.provenance, "planner")
 
+    def test_bridge_entry_receives_effective_named_profile(self) -> None:
+        from unittest.mock import patch
+        from aimusic.audio.entry import render_audio
+
+        with tempfile.TemporaryDirectory() as tmp:
+            package = _generate_package(Path(tmp))
+            with patch("aimusic.audio.bridge.render_audio_from_package") as bridge, patch.dict(
+                os.environ, {"AIMUSIC_AUDIO_BACKEND": "m2a"}
+            ):
+                bridge.return_value = Path(tmp)
+                render_audio(package, profile="listening", validate_only=False)
+                config = bridge.call_args.kwargs["config"]
+                self.assertEqual(config["render"]["backend"], "fluidsynth")
+                self.assertFalse(config["render"]["allow_simple_fallback"])
+
     def test_validate_only_does_not_import_synth_or_orchestrator(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             package = _generate_package(Path(tmp))

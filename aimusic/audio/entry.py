@@ -59,19 +59,18 @@ def render_audio(
     from aimusic.audio.bridge import render_audio_from_package, resolve_backend
     from aimusic.audio.orchestrator import audio_config_to_dict
 
+    cfg = audio_config_to_dict(config)
     backend = resolve_backend()
     out_dir = Path(config.paths.output_dir) / report.run_id
     if backend == "m2a":
         audio_out = render_audio_from_package(
             ctx.package,
             output_dir=out_dir,
-            profile_path=config.source_path,
-            config_path=None,
+            config=cfg,
         )
     else:
         # Force native path explicitly for deterministic product default.
         os.environ.setdefault("AIMUSIC_AUDIO_BACKEND", "native")
-        cfg = audio_config_to_dict(config)
         cfg.setdefault("paths", {})["cache_dir"] = config.paths.cache_dir
         cfg.setdefault("paths", {})["output_dir"] = str(out_dir)
         if config.paths.soundfont is not None:

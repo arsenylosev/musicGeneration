@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +96,7 @@ def render_audio_from_package(
     config_path: Path | str | None = None,
     profile_path: Path | str | None = None,
     enable_restyle: bool = False,
+    config: dict[str, Any] | None = None,
 ) -> Path:
     """Run the audio spine on a RenderPackage; return the audio output directory."""
     require_audio_extra()
@@ -102,8 +104,11 @@ def render_audio_from_package(
         package = load_render_package(package)
 
     cfg = _default_pipeline_config()
-    cfg = _merge(cfg, _load_yaml_config(Path(config_path) if config_path else None))
-    cfg = _merge(cfg, _load_yaml_config(Path(profile_path) if profile_path else None))
+    if config is not None:
+        cfg = deepcopy(config)
+    else:
+        cfg = _merge(cfg, _load_yaml_config(Path(config_path) if config_path else None))
+        cfg = _merge(cfg, _load_yaml_config(Path(profile_path) if profile_path else None))
     if enable_restyle:
         cfg.setdefault("stages", {})["prompts"] = True
         cfg.setdefault("stages", {})["restyle"] = True

@@ -1,14 +1,18 @@
-"""Load audio pipeline runtime config (``config/audio.default.yaml``)."""
+"""Resource-backed audio profiles and immutable effective settings."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from importlib.resources import files
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from aimusic.audio import require_audio_extra
 
-_DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config" / "audio.default.yaml"
+_PROFILES = {"preview", "listening"}
 
 
 @dataclass(frozen=True)
@@ -43,7 +47,47 @@ class AudioConfig:
     render: AudioRenderConfig
     stages: AudioStagesConfig
     paths: AudioPathsConfig
-    source_path: Path
+    source_path: Path | None
+    raw: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        """Freeze a normalized snapshot, including dataclass replacement values."""
+        raw = _thaw(self.raw)
+        raw.update(version=self.version, mode=self.mode)
+        for name in ("render", "stages", "paths"):
+            raw[name].update(asdict(getattr(self, name)))
+        object.__setattr__(self, "raw", _freeze(raw))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return detached effective settings without reading the source file."""
+        return _thaw(self.raw)
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def merge_configs(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursive merge for profile overrides; neither input is modified."""
+    result = dict(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = merge_configs(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 def _require_mapping(label: str, value: Any) -> dict[str, Any]:
@@ -52,22 +96,82 @@ def _require_mapping(label: str, value: Any) -> dict[str, Any]:
     return value
 
 
+def normalize_routing(render: dict[str, Any]) -> dict[str, Any]:
+    """Canonicalize one config layer, rejecting contradictory alias assignments."""
+    normalized = dict(render)
+    routes: dict[str, dict[str, str]] = {}
+    origins: dict[tuple[str, str], str] = {}
+    for form in ("routing", "role_map"):
+        for role, route in _require_mapping(f"render.{form}", render.get(form, {})).items():
+            if not isinstance(role, str) or not role.strip():
+                raise ValueError(f"render.{form} role must be a nonempty string")
+            canonical = "comping" if role == "comp" else role
+            origin = f"render.{form}.{role}"
+            if form == "role_map" and isinstance(route, str):
+                route = {"default": route, "microtonal": route}
+            route = _require_mapping(origin, route)
+            target = routes.setdefault(canonical, {})
+            for tuning, backend in route.items():
+                if tuning not in {"default", "microtonal"}:
+                    raise ValueError(f"{origin}: unknown tuning class {tuning!r}")
+                if not isinstance(backend, str) or not backend.strip():
+                    raise ValueError(f"{origin}.{tuning} renderer must be a nonempty string")
+                key = (canonical, tuning)
+                if tuning in target and target[tuning] != backend:
+                    raise ValueError(
+                        f"routing conflict for {canonical}.{tuning}: "
+                        f"{origins[key]}={target[tuning]!r} versus {origin}={backend!r}"
+                    )
+                target[tuning] = backend
+                origins[key] = origin
+    normalized.pop("role_map", None)
+    normalized["routing"] = routes
+    return normalized
+
+
 def load_audio_config(profile: Path | str | None = None) -> AudioConfig:
-    """Load YAML audio config; default is ``config/audio.default.yaml``."""
+    """Load packaged defaults, optionally overlaid by a named or explicit YAML profile.
+
+    A Path always means a file; only bare string names select packaged profiles.
+    source_path is provenance for explicit files, never the settings authority.
+    """
     require_audio_extra()
     import yaml
 
-    config_path = Path(profile) if profile is not None else _DEFAULT_CONFIG
-    if not config_path.is_file():
-        raise FileNotFoundError(f"Audio config not found: {config_path}")
-
-    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise ValueError(f"Audio config root must be a mapping: {config_path}")
+    resources = files("aimusic.audio").joinpath("resources")
+    raw = _require_mapping(
+        "Audio config root", yaml.safe_load(resources.joinpath("audio.default.yaml").read_text(encoding="utf-8"))
+    )
+    config_path = None
+    if isinstance(profile, str) and profile in _PROFILES:
+        text = resources.joinpath(f"{profile}.yaml").read_text(encoding="utf-8")
+    elif profile is not None:
+        config_path = Path(profile).expanduser().resolve()
+        if not config_path.is_file():
+            raise FileNotFoundError(f"Audio config not found: {config_path}")
+        text = config_path.read_text(encoding="utf-8")
+    else:
+        text = "{}"
+    override = _require_mapping("Audio config root", yaml.safe_load(text))
+    for section in ("render", "stages", "paths"):
+        if section in override:
+            _require_mapping(section, override[section])
+    # Normalize each layer first: profile overrides may replace shipped defaults,
+    # but two contradictory aliases in the same file must never mask each other.
+    raw["render"] = normalize_routing(raw.get("render", {}))
+    override["render"] = normalize_routing(override.get("render", {}))
+    raw = merge_configs(raw, override)
+    raw.setdefault("code_version", "0.1.0")
 
     render = _require_mapping("render", raw.get("render", {}))
     stages = _require_mapping("stages", raw.get("stages", {}))
     paths = _require_mapping("paths", raw.get("paths", {}))
+    soundfont = paths.get("soundfont")
+    if soundfont is not None:
+        if not isinstance(soundfont, str) or not soundfont.strip():
+            raise ValueError("SoundFont paths.soundfont must be a nonempty file path or null")
+        origin = config_path.parent if config_path is not None else Path.cwd()
+        paths["soundfont"] = str(_absolute_path(soundfont, origin))
 
     return AudioConfig(
         version=int(raw.get("version", 1)),
@@ -92,4 +196,44 @@ def load_audio_config(profile: Path | str | None = None) -> AudioConfig:
             soundfont=paths.get("soundfont"),
         ),
         source_path=config_path,
+        raw=raw,
     )
+
+
+def _absolute_path(value: Path | str, origin: Path) -> Path:
+    path = Path(value).expanduser()
+    return (path if path.is_absolute() else origin / path).resolve()
+
+
+def resolve_soundfont(config: AudioConfig, *, explicit: Path | str | None = None) -> Path | None:
+    """Resolve CLI > config/profile > environment, without loading a native library.
+
+    Config-relative assets were anchored at load time. CLI/environment relative
+    paths use the current directory. None means no asset was requested; renderer
+    policy decides whether one is required. An invalid selection never falls back.
+    """
+    candidates = (
+        ("--soundfont", explicit),
+        ("paths.soundfont", config.paths.soundfont),
+        ("AIMUSIC_SOUNDFONT", os.environ.get("AIMUSIC_SOUNDFONT")),
+    )
+    for source, value in candidates:
+        if value is None:
+            continue
+        guidance = (
+            f"SoundFont from {source} ({value!s}) must be a readable file path; "
+            "set --soundfont, paths.soundfont, or AIMUSIC_SOUNDFONT to a local "
+            "license-approved SoundFont. No lower-precedence asset was selected."
+        )
+        try:
+            if not str(value).strip():
+                raise ValueError("empty path")
+            path = _absolute_path(value, Path.cwd())
+            if not path.is_file():
+                raise ValueError("not a regular file")
+            with path.open("rb") as stream:
+                stream.read(1)
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise ValueError(guidance) from exc
+        return path
+    return None

@@ -20,7 +20,7 @@ def _infer_role(instrument: pm.Instrument) -> str:
     name = (instrument.name or "").strip().lower()
     for role in _NAME_ROLES:
         if role in name:
-            return role
+            return "comping" if role == "comp" else role
     if instrument.is_drum:
         return "drums"
     prog = int(instrument.program)
@@ -29,12 +29,12 @@ def _infer_role(instrument: pm.Instrument) -> str:
     if 32 <= prog <= 39:
         return "bass"
     if 40 <= prog <= 51:
-        return "comp"
-    if 80 <= prog <= 103:
-        return "lead"
+        return "comping"
     if 88 <= prog <= 95:
         return "pads"
-    return "comp"
+    if 80 <= prog <= 103:
+        return "lead"
+    return "comping"
 
 
 def _tempo_bpm(midi: pm.PrettyMIDI) -> float:

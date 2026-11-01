@@ -80,6 +80,23 @@ class TestAudioBridge(unittest.TestCase):
                     render_audio_from_package(package, output_dir=tmp / "out")
                 self.assertIn("audio-bridge", str(ctx.exception).lower())
 
+    def test_effective_config_does_not_reread_paths(self) -> None:
+        from aimusic.audio.bridge import render_audio_from_package
+        from aimusic.audio.config import load_audio_config
+        from tests.test_audio_entry import _generate_package
+
+        with tempfile.TemporaryDirectory() as tmp_s:
+            tmp = Path(tmp_s)
+            package = _generate_package(tmp)
+            config = load_audio_config("listening").to_dict()
+            with mock.patch.dict(os.environ, {"AIMUSIC_AUDIO_BACKEND": "native"}), mock.patch(
+                "aimusic.audio.orchestrator.Orchestrator"
+            ) as orch, mock.patch(
+                "aimusic.audio.bridge._load_yaml_config", side_effect=AssertionError("reread")
+            ):
+                render_audio_from_package(package, output_dir=tmp / "audio", config=config)
+                self.assertEqual(orch.call_args.kwargs["config"]["render"], config["render"])
+
     @unittest.skipUnless(_m2a_available(), "requires pip install -e '.[audio-bridge]'")
     def test_m2a_render_from_generated_package(self) -> None:
         import subprocess

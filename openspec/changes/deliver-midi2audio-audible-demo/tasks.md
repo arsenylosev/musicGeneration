@@ -31,10 +31,10 @@ Suggested message: `fix(audio): package profiles and normalize effective routing
 
 Files: `audio/config.py`, `audio/orchestrator.py` config conversion, new `audio/resources/` profiles, `pyproject.toml`, new config/wheel tests and setup docs.
 
-- [ ] 3.1 Ship resource-backed defaults plus `preview`/`listening` profiles and retain effective settings rather than rereading `source_path`; verify `tests/test_audio_config.py` covers packaged resources, explicit YAML profiles and source-path-independent config conversion.
-- [ ] 3.2 Normalize `routing`/legacy `role_map` and `comp`/`comping`, rejecting contradictory aliases; fix imported pad/lead heuristic precedence and verify config/analysis tests cover identical aliases, conflicts and program boundaries.
-- [ ] 3.3 Implement CLI-ready SoundFont resolution with explicit > profile/config > `AIMUSIC_SOUNDFONT` precedence, config-relative paths and actionable invalid-path errors; verify mocked config tests include a bad higher-precedence path and do not access a native library.
-- [ ] 3.4 Add an isolated wheel smoke test that builds/installs the wheel and loads defaults/profiles with checkout and `PYTHONPATH` excluded; verify new `tests/test_audio_wheel.py` and document profile/asset precedence in audio setup docs before committing C2.
+- [x] 3.1 Ship resource-backed defaults plus `preview`/`listening` profiles and retain effective settings rather than rereading `source_path`; verify `tests/test_audio_config.py` covers packaged resources, explicit YAML profiles and source-path-independent config conversion.
+- [x] 3.2 Normalize `routing`/legacy `role_map` and `comp`/`comping`, rejecting contradictory aliases; fix imported pad/lead heuristic precedence and verify config/analysis tests cover identical aliases, conflicts and program boundaries.
+- [x] 3.3 Implement CLI-ready SoundFont resolution with explicit > profile/config > `AIMUSIC_SOUNDFONT` precedence, config-relative paths and actionable invalid-path errors; verify mocked config tests include a bad higher-precedence path and do not access a native library.
+- [x] 3.4 Add an isolated wheel smoke test that builds/installs the wheel and loads defaults/profiles with checkout and `PYTHONPATH` excluded; verify new `tests/test_audio_wheel.py` and document profile/asset precedence in audio setup docs before committing C2.
 
 ## 4. Event-preserving groove — commit C3
 

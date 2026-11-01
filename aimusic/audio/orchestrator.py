@@ -279,14 +279,10 @@ def load_config(path: Path | str) -> dict[str, Any]:
 
 
 def merge_configs(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Shallow-recursive merge for profile overrides."""
-    result = dict(base)
-    for k, v in override.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = merge_configs(result[k], v)
-        else:
-            result[k] = v
-    return result
+    """Retain the orchestrator API while sharing profile merge semantics."""
+    from aimusic.audio.config import merge_configs as merge
+
+    return merge(base, override)
 
 
 def audio_config_to_dict(config: Any) -> dict[str, Any]:
@@ -295,7 +291,4 @@ def audio_config_to_dict(config: Any) -> dict[str, Any]:
 
     if not isinstance(config, AudioConfig):
         raise TypeError("expected AudioConfig")
-    raw = load_config(config.source_path) if config.source_path.is_file() else {}
-    # Ensure code_version for cache keys
-    raw.setdefault("code_version", "0.1.0")
-    return raw
+    return config.to_dict()
