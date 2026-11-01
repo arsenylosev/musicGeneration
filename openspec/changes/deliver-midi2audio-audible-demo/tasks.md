@@ -96,8 +96,8 @@ Suggested message: `feat(audio): validate dry 19-EDO renders with tuning evidenc
 
 Files: new `audio/scoring/tuning_check.py`, controlled-tone source/expected-frequency fixtures, checker/integration tests and metric docs.
 
-- [ ] 9.1 Implement deterministic monophonic-window f0 analysis and structured expected/measured/coverage reports; verify new `tests/test_audio_tuning_check.py` with synthetic exact, detuned, silent, insufficient-confidence and percussion cases, without transcription/model dependencies.
-- [ ] 9.2 Enforce controlled per-tone <=5-cent acceptance and default mean/P95 <=15-cent hard floors, honoring stricter configured limits; verify boundary tests, flattened-12-TET corruption and missing-evidence rejection use original targets rather than inferring new targets from the bad output.
+- [x] 9.1 Implement deterministic monophonic-window f0 analysis and structured expected/measured/coverage reports; verify new `tests/test_audio_tuning_check.py` with synthetic exact, detuned, silent, insufficient-confidence and percussion cases, without transcription/model dependencies.
+- [x] 9.2 Enforce controlled per-tone <=5-cent acceptance and default mean/P95 <=15-cent hard floors, honoring stricter configured limits; verify boundary tests, flattened-12-TET corruption and missing-evidence rejection use original targets rather than inferring new targets from the bad output.
 - [ ] 9.3 Run native dry 19-EDO reference tones through groove-disabled and groove-enabled paths; verify intended frequency windows pass and a deliberately flattened version fails, record asset/runtime hashes, and label polyphonic frequency accuracy unmeasured.
 - [ ] 9.4 Document evidence limits and remaining MUS-35 Scala/helpers/diffusion-gating work; present reports and controlled listening samples for human review and commit C8, explicitly leaving MUS-35 partially delivered and later blocking relations intact.
 
