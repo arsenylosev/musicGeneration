@@ -350,14 +350,20 @@ def _snapshots(events: tuple[MidiEvent, ...]) -> list[State]:
     return result
 
 
-def _protected(state: State, pitch: int, ordinary: bool = False) -> State:
-    """Persistent CC automation stays on its timeline; pitch/expression cannot drift."""
+def _protected(state: State, pitch: int) -> State:
+    """Preserve pitch/expression, including partially known post-SysEx state."""
     result = {k: v for k, v in state.items()
-            if k[0] in ('pitchwheel', 'aftertouch', 'program_change', 'bank', 'rpn', 'nrpn')
-            or k in (('cc', 74), ('poly', pitch))
-            or (ordinary and k[0] == 'cc' and k[1] not in (*_PARAMETER_CCS, 0, 32))}
+              if k[0] in ('pitchwheel', 'aftertouch', 'program_change', 'bank', 'rpn', 'nrpn',
+                          'rpn_msb', 'rpn_lsb', 'nrpn_msb', 'nrpn_lsb')
+              or k in (('cc', 74), ('poly', pitch))
+              or (('opaque', 0) in state and
+                  (k == ('selection', 0) or k in (('cc', 98), ('cc', 99), ('cc', 100), ('cc', 101))))}
     result.setdefault(('poly', pitch), 0)
     return result
+
+
+def _ordinary(state: State) -> State:
+    return {k: v for k, v in state.items() if k[0] == 'cc' and k[1] not in (*_PARAMETER_CCS, 0, 32, 74)}
 
 
 def _replay(current: State, wanted: State, channel: int) -> list[Any]:
@@ -508,11 +514,24 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
     for old, new in zip(source.events, moved):
         if old.channel is not None and bisect_left(sysex_keys, old.key) != bisect_left(new_sysex_keys, new.key):
             raise ChannelStateConflict(f'track {old.track}, channel {old.channel}: opaque SysEx boundary crossing')
+    # Independent ordinary-controller baseline: source automation in destination
+    # order, before any replay can contaminate another voice's expected state.
+    timeline = tuple(sorted(moved, key=lambda e: e.key))
+    timeline_states = _snapshots(timeline)
+    timeline_positions = {(e.track, e.order): i for i, e in enumerate(timeline)}
+    control_indices: dict[int, list[int]] = {n.channel: [] for n in source.notes}
+    for i, e in enumerate(timeline):
+        if e.message.type == 'sysex':
+            for indices in control_indices.values():
+                indices.append(i)
+        elif (e.message.type == 'control_change' and e.channel in control_indices
+              and e.message.control not in (*_PARAMETER_CCS, 0, 32, 74)):
+            control_indices[e.message.channel].append(i)
     channels: dict[int, State] = {}
     replayed: list[MidiEvent] = []
     replay_order = min(e.order for e in source.events) - 1
     sounding: dict[int, list[int]] = {}
-    for e in sorted(moved, key=lambda e: e.key):
+    for e in timeline:
         state = _event_state(channels, e)
         if e.message.type == 'note_on' and e.message.velocity:
             n = source.notes[e.note_ids[0]]
@@ -570,9 +589,14 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
             boundaries.setdefault(e.channel, {})[e.tick] = i
     boundary_ticks = {channel: list(ticks) for channel, ticks in boundaries.items()}
     for n, new_note in zip(source.notes, candidate.notes):
-        ordinary = (n.start, n.end) == (new_note.start, new_note.end)
-        expected = _protected(original_states[n.on], n.pitch, ordinary)
-        if _protected(actual_states[new_note.on], n.pitch, ordinary) != expected:
+        timeline_on = timeline_positions[(n.track, source.events[n.on].order)]
+        controls = _ordinary(original_states[n.on] if new_note.start < n.start else timeline_states[timeline_on])
+        if _ordinary(actual_states[new_note.on]) != controls:
+            raise _conflict(n, 'initial ordinary controller state changed by replay')
+        automation = control_indices[n.channel]
+        control_index = bisect_right(automation, timeline_on)
+        expected = _protected(original_states[n.on], n.pitch)
+        if _protected(actual_states[new_note.on], n.pitch) != expected:
             raise _conflict(n, 'initial pitch/expression state changed')
         changes = []
         previous = expected
@@ -581,8 +605,8 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
         stop = bisect_left(source_ticks[n.channel], n.sounding_end)
         for i in indices[first:stop]:
             e = source.events[i]
-            current = _protected(original_states[i], n.pitch, ordinary)
-            delta = {k: v for k, v in current.items() if previous.get(k, 0) != v}
+            current = _protected(original_states[i], n.pitch)
+            delta = {k: v for k, v in current.items() if previous.get(k) != v}
             if delta:
                 at = moved_by_id[(e.track, e.order)].tick
                 if not new_note.start <= at < new_note.sounding_end:
@@ -599,8 +623,20 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
             while change_index < len(changes) and changes[change_index][0] <= tick:
                 expected.update(changes[change_index][2]); change_index += 1
             last = boundaries[n.channel][tick]
-            actual = _protected(actual_states[last], n.pitch, ordinary)
-            if any(actual.get(k, 0) != expected.get(k, 0) for k in actual.keys() | expected.keys()):
+            # Only this voice's earlier-onset replay is permitted as its initial
+            # override. Subsequent source controls remain absolute, including
+            # redundant writes; all other replay must match this expectation.
+            while control_index < len(automation) and timeline[automation[control_index]].key <= candidate.events[last].key:
+                event = timeline[automation[control_index]]
+                if event.message.type == 'sysex':
+                    controls.clear()
+                else:
+                    controls[('cc', event.message.control)] = event.message.value
+                control_index += 1
+            if _ordinary(actual_states[last]) != controls:
+                raise _conflict(n, f'incompatible ordinary controller state at tick {tick}')
+            actual = _protected(actual_states[last], n.pitch)
+            if any(actual.get(k) != expected.get(k) for k in actual.keys() | expected.keys()):
                 raise _conflict(n, f'incompatible simultaneous pitch/expression state at tick {tick}')
     return candidate
 

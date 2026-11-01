@@ -49,8 +49,10 @@ preserved unless a retimed event requires extending its track.
 - Ordinary persistent controllers keep their original timeline. An earlier note
   may need additive initial-state replay. Later notes do not rewind volume/pan/
   sustain automation. Replay that changes another sounding voice is rejected;
-  unchanged voices also retain ordinary-controller trajectories. Program/bank and
-  pitch/expression state are reconstructed
+  every voice (including retimed voices) is audited against an independent source
+  controller timeline, not replay-contaminated state. An earlier onset may use its
+  own initial source controls; subsequent source writes, even redundant writes,
+  remain absolute. Program/bank and pitch/expression state are reconstructed
   for each intended voice. Bank selects latch on program change; replay also
   preserves pending bank selects for later source programs. RPN replay is an
   ordered select/data transaction;
@@ -80,7 +82,9 @@ note endpoints, is checked against opaque SysEx boundaries (including same-tick
 order). SysEx invalidates channel snapshots: defaults/pre-reset values are no
 longer known. Retiming within a region may proceed without replay, but replay
 requiring unknown state fails closed. Parameter data entry after SysEx requires
-an explicitly known RPN/NRPN selector. Ghosts cannot copy state across MTS/SysEx.
+an explicitly known RPN/NRPN selector. Partial RPN/NRPN MSB/LSB values and
+post-SysEx selector state participate in lifetime/trajectory validation; an unknown
+component is not treated as zero. Ghosts cannot copy state across MTS/SysEx.
 Preserving MTS bytes does **not**
 prove MTS rendering capability. Active MPE master-zone interpretation, alternate
 hold pedals/channel-mode resets, device-dependent relative parameter increment/

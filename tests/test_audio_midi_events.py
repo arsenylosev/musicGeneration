@@ -653,3 +653,93 @@ class TestReviewRegressions(unittest.TestCase):
                     (250, message('note_off', note=60)))
                 with self.assertRaisesRegex(ChannelStateConflict, 'unknown.*SysEx|SysEx.*unknown'):
                     self.retime(midi, [(120, 170)])
+
+
+class TestPartialControllerState(unittest.TestCase):
+    retime = TestRetiming.retime
+
+    def test_partial_rpn_after_sysex_cannot_fall_outside_shortened_note(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        midi = channel_fixture(
+            (100, mido.Message('sysex', data=(0x7e, 0x7f, 9, 1))),
+            (100, message('control_change', control=101, value=0)),
+            (100, message('control_change', control=100, value=0)),
+            (200, message('pitchwheel', pitch=4096)),
+            (200, message('note_on', note=60)),
+            (300, message('control_change', control=6, value=12)),
+            (400, message('note_off', note=60)))
+        with self.assertRaisesRegex(ChannelStateConflict, 'trajectory|partial|unknown'):
+            self.retime(midi, [(200, 250)])
+
+    def test_ordinary_replay_cannot_contaminate_a_subsequently_retimed_voice(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        for cc in (7, 10, 11):
+            with self.subTest(cc=cc):
+                midi = channel_fixture(
+                    (150, message('note_on', note=60)),
+                    (250, message('note_off', note=60)),
+                    (300, message('control_change', control=cc, value=40)),
+                    (400, message('note_on', note=64)),
+                    (450, message('note_off', note=64)))
+                with self.assertRaisesRegex(ChannelStateConflict, 'controller|state'):
+                    self.retime(midi, [(151, 251), (50, 100)])
+
+    def test_partial_parameter_zero_and_low_half_are_not_unknown_defaults(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        for selectors in ((101, 100), (99, 98)):
+            for cc, value in ((6, 0), (38, 0), (38, 50)):
+                with self.subTest(selectors=selectors, cc=cc, value=value):
+                    midi = channel_fixture(
+                        (100, mido.Message('sysex', data=(0x7e, 0x7f, 9, 1))),
+                        *((100, message('control_change', control=s, value=0)) for s in selectors),
+                        (200, message('pitchwheel', pitch=4096)),
+                        (200, message('note_on', note=60)),
+                        (300, message('control_change', control=cc, value=value)),
+                        (400, message('note_off', note=60)))
+                    with self.assertRaisesRegex(ChannelStateConflict, 'trajectory|partial|unknown'):
+                        self.retime(midi, [(200, 250)])
+
+    def test_partial_selector_after_sysex_is_not_discarded_by_trajectory_audit(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        midi = channel_fixture(
+            (100, mido.Message('sysex', data=(0x7e, 0x7f, 9, 1))),
+            (200, message('note_on', note=60)),
+            (300, message('control_change', control=101, value=0)),
+            (400, message('note_off', note=60)))
+        with self.assertRaisesRegex(ChannelStateConflict, 'trajectory|partial|unknown'):
+            self.retime(midi, [(200, 250)])
+
+    def test_partial_rpn_change_kept_inside_lifetime_can_be_preserved(self):
+        midi = channel_fixture(
+            (100, mido.Message('sysex', data=(0x7e, 0x7f, 9, 1))),
+            (100, message('control_change', control=101, value=0)),
+            (100, message('control_change', control=100, value=0)),
+            (200, message('pitchwheel', pitch=4096)),
+            (200, message('note_on', note=60)),
+            (300, message('control_change', control=6, value=12)),
+            (400, message('note_off', note=60)))
+        _, out = self.retime(midi, [(200, 350)])
+        self.assertEqual([(e.tick, e.message.value) for e in out.events
+                          if e.message.type == 'control_change' and e.message.control == 6], [(300, 12)])
+        self.assertEqual(out.notes[0].end, 350)
+
+    def test_earlier_replay_yields_to_absolute_source_automation(self):
+        midi = channel_fixture(
+            (100, message('control_change', control=7, value=60)),
+            (300, message('control_change', control=7, value=40)),
+            (400, message('note_on', note=60)),
+            (500, message('note_off', note=60)))
+        _, out = self.retime(midi, [(50, 450)])
+        self.assertEqual([(e.tick, e.message.value) for e in out.events
+                          if e.message.type == 'control_change' and e.message.control == 7],
+                         [(50, 40), (100, 60), (300, 40)])
+
+    def test_shortening_does_not_require_later_ordinary_automation(self):
+        midi = channel_fixture(
+            (200, message('note_on', note=60)),
+            (300, message('control_change', control=7, value=40)),
+            (400, message('note_off', note=60)))
+        _, out = self.retime(midi, [(201, 250)])
+        self.assertEqual([(e.tick, e.message.value) for e in out.events
+                          if e.message.type == 'control_change' and e.message.control == 7], [(300, 40)])
+        self.assertEqual((out.notes[0].start, out.notes[0].end), (201, 250))
