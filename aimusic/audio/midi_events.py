@@ -6,6 +6,7 @@ ports and ambiguous note/channel ownership are deliberately unsupported.
 """
 from __future__ import annotations
 
+import io
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
 from heapq import heappop, heappush
@@ -115,6 +116,10 @@ class MidiEvents:
         except (OSError, EOFError, ValueError, KeyError, IndexError) as exc:
             raise MidiEventError(f'Malformed MIDI {path}: {exc}') from exc
         return cls.from_mido(midi)
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> MidiEvents:
+        return cls.from_mido(mido.MidiFile(file=io.BytesIO(data)))
 
     @classmethod
     def from_mido(cls, midi: Any) -> MidiEvents:

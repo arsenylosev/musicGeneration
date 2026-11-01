@@ -400,8 +400,8 @@ class TestReviewPublication(unittest.TestCase):
                 apply_groove(source, {}, output_path=out)
             self.assertEqual(source.read_bytes(), original)
             manifest = json.loads(Path(str(out) + '.json').read_text())
-            self.assertEqual(manifest['output_path'], str(out))
-            self.assertEqual(manifest['metadata']['diff_report'], str(out) + '.diff.json')
+            self.assertEqual(manifest['output_path'], out.name)
+            self.assertEqual(manifest['metadata']['diff_report'], out.name + '.diff.json')
             self.assertFalse(Path(str(out) + '.json').is_symlink())
 
     def test_meter_anticipation_uses_indexed_event_visits(self):

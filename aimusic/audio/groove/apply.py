@@ -243,10 +243,10 @@ def apply_groove(
             "notes_out": report["notes_out"],
             "ghost_inserted": report["ghost_inserted"],
             "analysis_hash": (analysis or {}).get("inputs_hash"),
-            "diff_report": str(report_path),
+            "diff_report": report_path.name,
         },
         code_version=code_version,
-        output_path=str(output_path),
+        output_path=output_path.name,
     )
     buffer = io.BytesIO()
     out_midi.to_mido().save(file=buffer)

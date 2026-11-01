@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 import platform
+from importlib import metadata
 import tempfile
 from contextlib import ExitStack
 from copy import deepcopy
@@ -21,6 +22,7 @@ import yaml
 
 from aimusic.audio.from_score import AudioPackageContext, ValidationReport, from_score, validate_package
 from aimusic.audio.manifest import content_hash_files
+from aimusic.audio.inputs import InputSnapshot
 from aimusic.audio.cache import MANIFEST, cached_stage, fingerprint, restored_entry
 from aimusic.audio.render.registry import file_digest
 from aimusic.audio.render.stem_publication import pin_output
@@ -112,8 +114,9 @@ class Orchestrator:
                 root.publish(staging, list(sources))
 
     def _cached_stage(self, stage: str, identity: dict[str, Any], names: list[str],
-                      produce: Callable[[Path], Any]) -> Path:
-        directory, hit = cached_stage(self.cache_dir / stage, identity, names, produce)
+                      produce: Callable[[Path], Any], *, verify_inputs: Callable[[], None]) -> Path:
+        directory, hit = cached_stage(self.cache_dir / stage, identity, names, produce, verify_inputs=verify_inputs)
+        verify_inputs()
         counts = self.cache_hits if hit else self.cache_misses
         counts[stage] = counts.get(stage, 0) + 1
         return directory
@@ -151,11 +154,20 @@ class Orchestrator:
         output_dir: Path | str | None = None,
     ) -> Path:
         """Execute analysis → expressivization → render (M1 spine)."""
+        with ExitStack() as stack:
+            scratch = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='.audio-run-')))
+            return self._run_snapshot(midi_path, output_dir, scratch, stack)
+
+    def _run_snapshot(self, midi_path: Path | str | AudioPackageContext, output_dir: Path | str | None,
+                      scratch: Path, stack: ExitStack) -> Path:
         context = None
         validation = None
+        is_package = isinstance(midi_path, AudioPackageContext)
+        source = midi_path.package.root if isinstance(midi_path, AudioPackageContext) else Path(midi_path)
+        inputs = InputSnapshot.capture(source, scratch / 'inputs', package=is_package)
         if isinstance(midi_path, AudioPackageContext):
-            # Re-open before cache access: files may have changed after admission.
-            context = from_score(midi_path.package.root)
+            # Parse, validate and reconcile one private, verified package snapshot.
+            context = from_score(scratch / 'inputs')
             if context.package.content_hash != midi_path.package.content_hash:
                 raise ContractViolation(
                     f"package identity changed since admission: expected={midi_path.package.content_hash}, "
@@ -163,6 +175,9 @@ class Orchestrator:
                 )
             validation = validate_package(context)
             midi_path = context.package.midi_path
+        else:
+            midi_path = inputs.files[0].path
+        inputs.verify()
         midi_path = Path(midi_path)
         if not midi_path.is_file():
             raise FileNotFoundError(f"MIDI file not found: {midi_path}")
@@ -184,28 +199,27 @@ class Orchestrator:
             names += [f'{midi_path.stem}.expressive.mid{suffix}' for suffix in ('', '.diff.json', '.json')]
         if stages.get('render', True):
             names += ['render.json']
-        with ExitStack() as stack:
-            root = stack.enter_context(pin_output(out))
-            root.check_new_files(names)
-            stem_root = None
-            if stages.get('render', True):
-                metadata = {'tracks': list(validation.reconciliation.tracks)} if validation else None
-                logical = isolate_source_stems(MidiEvents.load(midi_path), analysis=metadata)
-                stem_names = stem_artifact_names(logical) + ['render.json', MANIFEST]
-                stem_root = stack.enter_context(pin_output(out / 'stems'))
-                stem_root.check_new_files(stem_names)
-            scratch = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='.audio-run-')))
-            self._run_stages(midi_path, scratch, context, validation)
+        root = stack.enter_context(pin_output(out))
+        root.check_new_files(names)
+        stem_root = None
+        if stages.get('render', True):
+            metadata = {'tracks': list(validation.reconciliation.tracks)} if validation else None
+            logical = isolate_source_stems(MidiEvents.load(midi_path), analysis=metadata)
+            stem_names = stem_artifact_names(logical) + ['render.json', MANIFEST]
+            stem_root = stack.enter_context(pin_output(out / 'stems'))
+            stem_root.check_new_files(stem_names)
+        self._run_stages(midi_path, scratch, context, validation, inputs.verify)
+        inputs.verify()
+        if stem_root:
+            stem_names = sorted(p.name for p in (scratch / 'stems').iterdir() if p.name != MANIFEST) + [MANIFEST]
+            stem_root.check_new_files(stem_names)
+        with root.publication(scratch, names):
             if stem_root:
-                stem_names = sorted(p.name for p in (scratch / 'stems').iterdir() if p.name != MANIFEST) + [MANIFEST]
-                stem_root.check_new_files(stem_names)
-            with root.publication(scratch, names):
-                if stem_root:
-                    stem_root.publish(scratch / 'stems', stem_names)
+                stem_root.publish(scratch / 'stems', stem_names)
         return out
 
     def _run_stages(self, midi_path: Path, out: Path, context: AudioPackageContext | None,
-                    validation: ValidationReport | None) -> None:
+                    validation: ValidationReport | None, verify_inputs: Callable[[], None]) -> None:
         """Compute/restore privately; only run() may publish into the user tree."""
         stages = self.config.get("stages", {})
         code_version = str(self.config.get("code_version", "0.1.0"))
@@ -218,7 +232,6 @@ class Orchestrator:
 
         code_identity = {str(p.relative_to(Path(__file__).parent)): file_digest(p)
                          for p in sorted(Path(__file__).parent.rglob('*.py'))}
-        runtime = {'python': platform.python_version(), 'platform': platform.platform()}
         source_identity = {'midi_sha256': file_digest(midi_path),
                            **(context.verified_identity if context else {})}
         if context:
@@ -239,14 +252,17 @@ class Orchestrator:
                 json.dumps(analysis_doc, indent=2, sort_keys=True), encoding="utf-8"
             )
         elif stages.get("analysis", True):
-            identity: dict[str, Any] = {'source': source_identity, 'code': code_identity, 'runtime': runtime,
+            identity: dict[str, Any] = {'source': source_identity, 'code': code_identity, 'runtime': _runtime_identity('analysis'),
                         'code_version': code_version}
-            cached = self._cached_stage('analysis', identity, ['analysis.json', 'analysis.json.json'],
+            names = [f'{midi_path.stem}.analysis.json', f'{midi_path.stem}.analysis.json.json']
+            identity['artifacts'] = names
+            cached = self._cached_stage('analysis', identity, names,
                                         lambda directory: analyze_midi(midi_path, config=self.config,
-                                                                       output_path=directory / 'analysis.json'))
+                                                                       output_path=directory / names[0]),
+                                        verify_inputs=verify_inputs)
             dest = out / f"{midi_path.stem}.analysis.json"
-            with restored_entry(cached, fingerprint(identity), ['analysis.json', 'analysis.json.json']) as verified:
-                self._copy_stage_artifacts(verified / 'analysis.json', dest, '.json')
+            with restored_entry(cached, fingerprint(identity), names) as verified:
+                self._copy_stage_artifacts(verified / names[0], dest, '.json')
             analysis_doc = json.loads(dest.read_text(encoding='utf-8'))
 
         if stages.get("expressivization", True):
@@ -254,15 +270,16 @@ class Orchestrator:
             light = bool(self.config.get("groove", {}).get("light_cleanup", False))
             identity = {'source': source_identity, 'groove': groove_spec, 'light_cleanup': light,
                         'analysis': _semantic_analysis(analysis_doc), 'code': code_identity,
-                        'runtime': runtime, 'code_version': code_version}
-            names = ['expressive.mid', 'expressive.mid.diff.json', 'expressive.mid.json']
+                        'runtime': _runtime_identity('expressivization'), 'code_version': code_version}
+            names = [f'{midi_path.stem}.expressive.mid{suffix}' for suffix in ('', '.diff.json', '.json')]
+            identity['artifacts'] = names
             cached = self._cached_stage('expressivization', identity, names,
                 lambda directory: apply_groove(midi_path, groove_spec, analysis=analysis_doc,
-                                                output_path=directory / 'expressive.mid',
-                                                config=self.config, light_cleanup=light))
+                                                output_path=directory / names[0],
+                                                config=self.config, light_cleanup=light), verify_inputs=verify_inputs)
             dest = out / f"{midi_path.stem}.expressive.mid"
             with restored_entry(cached, fingerprint(identity), names) as verified:
-                self._copy_stage_artifacts(verified / 'expressive.mid', dest, '.diff.json', '.json')
+                self._copy_stage_artifacts(verified / names[0], dest, '.diff.json', '.json')
             expressive_midi = dest
 
         if stages.get("render", True):
@@ -277,7 +294,7 @@ class Orchestrator:
                 effective.setdefault('groove', {})['spec'] = groove_spec
             render_subset = {
                 'stem_layout_version': STEM_LAYOUT_VERSION, 'source': source_identity,
-                'expressive_midi_sha256': file_digest(expressive_midi),
+                'expressive_midi_sha256': plan.source_sha256,
                 'analysis': _semantic_analysis(analysis_doc), 'effective_config': effective,
                 'application_backend': {'requested_backend': 'native', 'effective_backend': 'native',
                                         'fallback_reason': None},
@@ -285,8 +302,12 @@ class Orchestrator:
                                    role=stem.role, role_source=stem.role_source)
                               for stem, choice in zip(plan.stems, plan.renderers)],
                 'duration_sec': plan.duration_sec, 'release_tail_sec': plan.release_tail_sec,
-                'code': code_identity, 'runtime': runtime,
+                'code': code_identity, 'runtime': _runtime_identity('render'),
             }
+
+            def verify_render_inputs() -> None:
+                verify_inputs()
+                plan.verify_inputs(expressive_midi)
 
             def produce(directory: Path) -> None:
                 render_role_stems(expressive_midi, output_dir=directory, plan=plan)
@@ -294,12 +315,33 @@ class Orchestrator:
 
             with pin_output(out) as root:
                 root.check_new_files(['render.json'])
-                cached_dir = self._cached_stage('render', render_subset, plan.names + ['render.json'], produce)
+                cached_dir = self._cached_stage('render', render_subset, plan.names + ['render.json'], produce,
+                                                verify_inputs=verify_render_inputs)
                 with restored_entry(cached_dir, fingerprint(render_subset), plan.names + ['render.json']) as verified:
                     with pin_output(out / 'stems') as stem_root:
                         stem_root.publish(verified, plan.names + ['render.json', MANIFEST])
+                    verify_render_inputs()
                     root.publish(verified, ['render.json'])
 
+
+# Versions are stage-specific: an unrelated validator change must not invalidate
+# analysis or rendering when the expressive MIDI bytes remain identical.
+_STAGE_DEPENDENCIES = {
+    'analysis': ('mido', 'numpy', 'pretty_midi', 'six'),
+    'expressivization': ('mido', 'pydantic', 'pydantic_core', 'annotated-types',
+                        'typing_extensions', 'typing-inspection', 'PyYAML'),
+    'render': ('mido', 'numpy', 'pretty_midi', 'six', 'soundfile', 'cffi', 'pycparser'),
+}
+
+
+def _runtime_identity(stage: str) -> dict[str, Any]:
+    dependencies = {}
+    for name in _STAGE_DEPENDENCIES[stage]:
+        try:
+            dependencies[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            dependencies[name] = 'not-installed'  # Optional/transitive across supported versions.
+    return {'python': platform.python_version(), 'platform': platform.platform(), 'dependencies': dependencies}
 
 
 def _semantic_analysis(analysis: dict[str, Any] | None) -> dict[str, Any]:

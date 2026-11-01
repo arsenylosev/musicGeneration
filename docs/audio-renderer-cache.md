@@ -46,8 +46,12 @@ simple preview's fixed 0.25-second tail is unchanged.
 SoundFont selection reuses config precedence (`paths.soundfont`, then
 `AIMUSIC_SOUNDFONT`; the resolver also supports explicit CLI input). An explicitly
 invalid higher-precedence path is an error, not an excuse to choose another asset.
-Asset **bytes**, never just a filename, enter identity, and are rechecked before
-execution. No SoundFont is needed for the default preview.
+Asset **bytes**, never just a filename, enter identity. The exact resolved asset
+is checked before and after each backend call, before cache publication, and
+after warm restoration. Detected mutation aborts; it never publishes under the
+old asset digest. These checks do not lock a SoundFont against a writer that
+changes and restores it between checks. No SoundFont is needed for the default
+preview.
 
 ## Identity and provenance
 
@@ -60,12 +64,29 @@ execution. No SoundFont is needed for the default preview.
   `fallback_reason`, required tuning and capability/backend/code/native versions;
 - SoundFont content digests, audio source-code digests and runtime identity.
 
-Per-WAV `.json` files repeat the actual renderer/capability/asset identity and
-`output_sha256`, using relative output names. Application backend provenance is
-separate from per-stem renderer provenance. Output/cache directory paths, config
+The orchestrator copies original MIDI or all package payloads into private
+scratch **before** parsing, package validation or reconciliation. It checks both
+originals and snapshots at cache boundaries; detected mutation aborts before a
+complete entry is published. A stem plan parses and hashes the same MIDI byte
+buffer, and execution rejects a different input. No stage rereads user output
+files as its input.
+
+Runtime identities are stage-specific: analysis includes `mido`, `numpy`,
+`pretty_midi` and `six`; expression includes `mido`, `pydantic`, `pydantic_core`,
+validation support packages and `PyYAML`; rendering includes MIDI/audio dependency
+versions plus each backend's declared native-library versions (including
+`libsndfile` for simple). Missing optional transitive packages have an explicit
+`not-installed` identity, not a newly required dependency.
+
+Per-WAV `.json` files repeat the actual renderer/capability/asset identity,
+`midi_sha256` and `output_sha256`, using relative output names. Application
+backend provenance is separate from per-stem renderer provenance. Output/cache directory paths, config
 source paths and SoundFont display paths are excluded from the fingerprint; equal
-asset bytes at a new path can reuse a result. Legacy/canonical equivalent routes
-normalize to the same identity. No cross-platform byte-equality claim is made.
+asset bytes at a new path can reuse a result. Upstream cache artifacts use their
+final basenames, included in those stage identities, so sidecar `output_path`
+and `diff_report` references resolve beside the sidecar on cold and warm runs.
+No provenance serializes temporary `.pending-*` or run-scratch paths.
+Legacy/canonical equivalent routes normalize to the same identity. No cross-platform byte-equality claim is made.
 
 ## Complete caches, safe restoration
 
@@ -95,12 +116,14 @@ role index and `stems/rough_mix.wav` remain unchanged.
 ## Asset-free evidence
 
 ```bash
-python -m pytest tests/test_audio_registry.py tests/test_audio_orchestrator.py tests/test_audio_bridge.py tests/test_audio_stems.py tests/test_audio_stem_publication.py -q
+python -m pytest tests/test_audio_registry.py tests/test_audio_orchestrator.py tests/test_audio_bridge.py tests/test_audio_stems.py tests/test_audio_stem_publication.py tests/test_audio_run_safety.py -q
 ```
 
 Coverage includes canonical role overrides, forbidden tuning/fallback, missing
 resources versus execution defects, resource availability changing before warm
 lookup, each identity component, same-path SoundFont replacement, valid package
 metadata changes with identical MIDI, corrupt/missing sidecars, process death,
-invalid WAV results, output collision safety and byte-identical warm restoration.
+invalid WAV results, run-wide output collision safety, byte-identical warm
+restoration, MIDI/last-stem SoundFont/package mutation races, mixed package
+snapshots, stable sidecar references and dependency-only invalidation.
 These are contract/cache checks, **not** FluidSynth or audible tuning acceptance.

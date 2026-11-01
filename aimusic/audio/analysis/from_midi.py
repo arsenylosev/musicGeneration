@@ -92,7 +92,7 @@ def build_analysis_document(
     return {
         "schema_version": ANALYSIS_VERSION,
         "code_version": code_version,
-        "source_midi": str(midi_path),
+        "source_midi": midi_path.name,
         "inputs_hash": inputs_hash,
         "resolution": int(midi.resolution),
         "tempo_bpm": _tempo_bpm(midi),

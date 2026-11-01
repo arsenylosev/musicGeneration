@@ -80,6 +80,7 @@ class RenderResult:
     code_digest: str
     native_versions: tuple[tuple[str, str], ...]
     soundfont_sha256: str | None
+    midi_sha256: str
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), 'output_path': self.output_path.name}
@@ -94,6 +95,10 @@ class ResolvedRenderer:
     soundfont: Path | None = None
     soundfont_sha256: str | None = None
 
+    def verify_asset(self) -> None:
+        if self.soundfont is not None and file_digest(self.soundfont) != self.soundfont_sha256:
+            raise ValueError('SoundFont bytes changed after renderer resolution; retry')
+
     def identity(self) -> dict[str, Any]:
         return {'requested_backend': self.requested_backend, 'effective_backend': self.backend.name,
                 'fallback_reason': self.fallback_reason, 'required_tuning': self.required_tuning,
@@ -104,9 +109,14 @@ def render_request(request: RenderRequest, selected: ResolvedRenderer) -> Render
     """Execute exactly the resolved backend, verify its result, write provenance."""
     if request.required_tuning != selected.required_tuning:
         raise UnsupportedTuning('tuning changed after renderer resolution')
-    if selected.soundfont is not None and file_digest(selected.soundfont) != selected.soundfont_sha256:
-        raise ValueError('SoundFont bytes changed after renderer resolution; retry')
+    if request.soundfont != selected.soundfont:
+        raise ValueError('SoundFont request differs from resolved asset')
+    selected.verify_asset()
+    midi_sha256 = file_digest(request.midi_path)
     path = selected.backend.render(request)  # No runtime fallback, even for a missing-resource error.
+    selected.verify_asset()
+    if file_digest(request.midi_path) != midi_sha256:
+        raise ValueError('MIDI bytes changed during renderer execution; retry')
     if path != request.output_path or path.is_symlink() or not path.is_file():
         raise ValueError('renderer did not produce the requested regular output file')
     samples, rate = sf.read(path, always_2d=True)
@@ -115,7 +125,7 @@ def render_request(request: RenderRequest, selected: ResolvedRenderer) -> Render
     backend = selected.backend
     result = RenderResult(path, file_digest(path), selected.requested_backend, backend.name,
                           selected.fallback_reason, backend.version, backend.capabilities,
-                          backend.code_digest, backend.native_versions, selected.soundfont_sha256)
+                          backend.code_digest, backend.native_versions, selected.soundfont_sha256, midi_sha256)
     Path(str(path) + '.json').write_text(json.dumps(result.to_dict(), sort_keys=True, indent=2), encoding='utf-8')
     return result
 

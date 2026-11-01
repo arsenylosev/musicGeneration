@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -177,6 +178,13 @@ class StemRenderPlan:
     bounds: list[float]
     duration_sec: float
     release_tail_sec: float
+    source_sha256: str
+
+    def verify_inputs(self, midi_path: Path | str) -> None:
+        if registry.file_digest(Path(midi_path)) != self.source_sha256:
+            raise ValueError('MIDI bytes changed after stem planning; retry')
+        for selected in self.renderers:
+            selected.verify_asset()
 
     @property
     def names(self) -> list[str]:
@@ -186,7 +194,8 @@ class StemRenderPlan:
 def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None = None,
                         analysis: dict[str, Any] | None = None) -> StemRenderPlan:
     """Resolve every role/capability/asset before rendering or querying its cache."""
-    source = MidiEvents.load(midi_path)
+    payload = Path(midi_path).read_bytes()
+    source = MidiEvents.from_bytes(payload)
     logical = isolate_source_stems(source, analysis=analysis)
     if not logical:
         raise ValueError('no source stems to render')
@@ -207,7 +216,8 @@ def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None 
         bounds = [i * bar for i in range(max(1, round(end / bar)) + 1)]
         bounds[-1] = end
     return StemRenderPlan(logical, choices, cfg, metadata.get('tuning', {}), bounds,
-                          max(end, float(bounds[-1])), float(cfg['render'].get('release_tail_sec', 0.25)))
+                          max(end, float(bounds[-1])), float(cfg['render'].get('release_tail_sec', 0.25)),
+                          hashlib.sha256(payload).hexdigest())
 
 
 def render_role_stems(
@@ -224,6 +234,7 @@ def render_role_stems(
     integer-pitch sine previews, not instrument/controller/tuning certification.
     """
     plan = plan or prepare_stem_render(midi_path, config=config, analysis=analysis)
+    plan.verify_inputs(midi_path)
     logical, cfg = plan.stems, plan.config
     sr = int(cfg.get('render', {}).get('sample_rate', 48000))
     peak_dbfs = _peak_dbfs(cfg)
@@ -260,6 +271,7 @@ def render_role_stems(
             (staging / GENERATED['role_index']).write_text(json.dumps(
                 {'schema_version': STEM_LAYOUT_VERSION, 'stems': rows, 'roles': roles,
                  'generated': GENERATED}, indent=2, sort_keys=True), encoding='utf-8')
+            plan.verify_inputs(midi_path)
             root.publish(staging, names)
     return {**{row['id']: Path(output_dir) / row['wav'] for row in rows},
             **{key: Path(output_dir) / name for key, name in GENERATED.items()}}

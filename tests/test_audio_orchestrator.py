@@ -443,7 +443,7 @@ class TestVerifiedCache(unittest.TestCase):
                                 ('expressivization', 'expressive.mid'), ('expressivization', 'expressive.mid.diff.json')):
             with self.subTest(stage=stage, artifact=artifact):
                 cache = next((self.root / 'cache' / stage).iterdir())
-                (cache / artifact).write_bytes(b'corrupt')
+                (cache / ('source.' + artifact)).write_bytes(b'corrupt')
                 orch, _ = self.run_audio()
                 self.assertEqual(orch.cache_misses.get(stage), 1)
 

@@ -52,12 +52,14 @@ def verified_entry(directory: Path, key: str, names: list[str]) -> bool:
 
 
 def cached_stage(root: Path, identity: dict[str, Any], names: list[str],
-                 produce: Callable[[Path], Any]) -> tuple[Path, bool]:
+                 produce: Callable[[Path], Any], *,
+                 verify_inputs: Callable[[], None] = lambda: None) -> tuple[Path, bool]:
     """Stage off-path, check all expected artifacts, manifest last, atomic rename.
 
     A killed producer may leave a dot-prefixed scratch directory; it is never a
     cache candidate. An intact concurrent winner is reused rather than replaced.
     """
+    verify_inputs()
     key = fingerprint(identity)
     root.mkdir(parents=True, exist_ok=True)
     destination = root / key
@@ -66,6 +68,7 @@ def cached_stage(root: Path, identity: dict[str, Any], names: list[str],
     with tempfile.TemporaryDirectory(prefix='.pending-', dir=root) as tmp:
         staging = Path(tmp)
         produce(staging)
+        verify_inputs()
         if set(p.name for p in staging.iterdir()) != set(names):
             raise ValueError('cache producer did not produce exactly the expected artifacts')
         digests = output_digests(staging, names)
@@ -74,6 +77,7 @@ def cached_stage(root: Path, identity: dict[str, Any], names: list[str],
         (staging / MANIFEST).write_text(canonical(manifest), encoding='utf-8')
         if not verified_entry(staging, key, names):
             raise ValueError('cache outputs changed during publication')
+        verify_inputs()
         if verified_entry(destination, key, names):
             return destination, False
         if destination.is_symlink() or destination.is_file():
