@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import PropertyMock, patch
 
 import numpy as np
 
@@ -161,6 +162,59 @@ class TestTuningAnalysis(unittest.TestCase):
                 self.assertFalse(report.passed)
                 self.assertEqual(report.coverage, 0)
 
+    def test_high_19_edo_and_half_sample_periods_are_not_wrong_subharmonics(self):
+        for hz in (440 * 2 ** (40 / 19), SR / 8.5, SR / 9.5):
+            for phase in (0, 0.2, 1.3, np.pi / 2, 3.1, 5.8):
+                with self.subTest(hz=hz, phase=phase):
+                    audio = sine(hz, phase=phase)
+                    report = analyze_tuning(audio, SR, (ToneWindow('high tone', 0, len(audio), hz),))
+                    report.require_pass()
+                    self.assertEqual(report.coverage, 1)
+                    self.assertLess(report.mean_abs_cents, 0.1)
+                    self.assertGreaterEqual(report.windows[0].confidence, 0.9)
+                    # Targets still have no influence on frequency/confidence selection.
+                    other = analyze_tuning(audio, SR, (ToneWindow('wrong intent', 0, len(audio), 440),))
+                    self.assertEqual(report.windows[0].measured_hz, other.windows[0].measured_hz)
+                    self.assertEqual(report.windows[0].confidence, other.windows[0].confidence)
+                    self.assertFalse(other.passed)
+
+    def test_inclusive_frequency_boundaries_keep_unclamped_measurements(self):
+        excursions = []
+        for hz, durations in ((40, (0.1, 0.25, 0.5)), (2000, (0.004, 0.25, 0.5))):
+            for seconds in durations:
+                for phase in (0, 0.2, 1.3, np.pi / 2, 3.1, 5.8):
+                    with self.subTest(hz=hz, seconds=seconds, phase=phase):
+                        audio = sine(hz, seconds=seconds, phase=phase)
+                        windows = (ToneWindow('boundary', 0, len(audio), hz),)
+                        report = analyze_tuning(audio, SR, windows)
+                        report.require_pass()
+                        # Wider bounds expose the original estimator value: never clamp.
+                        wide = analyze_tuning(audio, SR, windows, config=TuningCheckConfig(min_hz=39, max_hz=2001))
+                        self.assertEqual(report.windows[0].measured_hz, wide.windows[0].measured_hz)
+                        self.assertEqual(report.mean_abs_cents, wide.mean_abs_cents)
+                        measured = report.windows[0].measured_hz
+                        excursions.append(measured < 40 or measured > 2000)
+        self.assertTrue(any(excursions))
+
+    def test_genuinely_out_of_range_tones_are_not_admitted_by_boundary_tolerance(self):
+        # Half-second windows have a 2 Hz unpadded bin; 0.01 Hz is beyond
+        # the explicit 0.002-bin uncertainty (0.004 Hz), even though <5 cents.
+        for hz in (39.99, 2000.01):
+            for phase in (0, 0.2, 1.3, np.pi / 2, 3.1, 5.8):
+                with self.subTest(hz=hz, phase=phase):
+                    report = analyze_tuning(sine(hz, phase=phase), SR, (ToneWindow('outside', 0, 8000, hz),))
+                    self.assertFalse(report.passed)
+                    self.assertEqual(report.coverage, 0)
+                    self.assertEqual(report.windows[0].exclusion, 'out_of_range')
+
+    def test_range_uncertainty_does_not_relax_configured_cents_floor(self):
+        report = analyze_tuning(sine(40), SR, (ToneWindow('boundary', 0, 8000, 40),))
+        report.require_pass()
+        error = report.mean_abs_cents
+        self.assertGreater(error, 1e-6)
+        strict = TuningReport(report.windows, SR, TuningCheckConfig(max_tone_cents=error / 2))
+        self.assertFalse(strict.passed)
+
 
 def exact_report(cents: list[float], *, controlled: bool = True,
                  config: TuningCheckConfig = TuningCheckConfig()) -> TuningReport:
@@ -283,6 +337,103 @@ class TestTuningAcceptance(unittest.TestCase):
         strict = analyze_tuning(sine(440), SR, (window,), config=TuningCheckConfig(min_confidence=1))
         self.assertFalse(strict.passed)
         self.assertIsNone(strict.mean_abs_cents)
+
+
+class TestTuningEvidenceValidation(unittest.TestCase):
+    def test_direct_measurements_must_be_finite_positive_numbers(self):
+        window = ToneWindow('tone', 0, 8000, 440)
+        for hz in (float('nan'), float('inf'), -float('inf'), 0, -1, True, '440'):
+            with self.subTest(hz=hz), self.assertRaisesRegex(ValueError, 'measured_hz'):
+                TuningWindowResult(window, hz, 1.0)
+        for hz in (True, '440'):
+            with self.subTest(target=hz), self.assertRaisesRegex(ValueError, 'expected_hz'):
+                ToneWindow('tone', 0, 8000, hz)
+
+    def test_direct_confidence_must_be_finite_and_bounded(self):
+        window = ToneWindow('tone', 0, 8000, 440)
+        for confidence in (float('nan'), float('inf'), -0.001, 1.001, True, '1'):
+            with self.subTest(confidence=confidence), self.assertRaisesRegex(ValueError, 'confidence'):
+                TuningWindowResult(window, 440, confidence)
+
+    def test_missing_measurements_and_percussion_require_consistent_exclusions(self):
+        tone = ToneWindow('tone', 0, 8000, 440)
+        drum = ToneWindow('drum', 0, 8000, None, percussion=True)
+        for window, hz, confidence, reason in (
+            (tone, None, 0, None), (tone, None, 0, ''), (tone, 440, 1, 'silence'),
+            (tone, None, 0, 'percussion'), (drum, 440, 1, None),
+            (drum, None, 0, 'silence'), (drum, None, 1, 'percussion'),
+        ):
+            with self.subTest(window=window, hz=hz, reason=reason), self.assertRaisesRegex(ValueError, 'exclusion|percussion'):
+                TuningWindowResult(window, hz, confidence, reason)
+
+    def test_report_independently_applies_confidence_including_zero(self):
+        window = ToneWindow('tone', 0, 8000, 440)
+        for minimum in (0.9, 0.99):
+            for confidence, passed in ((0, False), (minimum - 1e-8, False), (minimum, True), (1, True)):
+                for controlled in (False, True):
+                    with self.subTest(minimum=minimum, confidence=confidence, controlled=controlled):
+                        row = TuningWindowResult(window, 440, confidence)
+                        report = TuningReport((row,), SR, TuningCheckConfig(min_confidence=minimum), controlled)
+                        self.assertEqual(report.passed, passed)
+                        self.assertEqual(report.coverage, float(passed))
+                        if not passed:
+                            self.assertIsNone(report.mean_abs_cents)
+                            self.assertIsNone(report.p95_abs_cents)
+                            with self.assertRaisesRegex(TuningCheckError, 'confidence'):
+                                report.require_pass()
+
+    def test_good_statistics_cannot_hide_an_unreliable_direct_observation(self):
+        window = ToneWindow('tone', 0, 8000, 440)
+        report = TuningReport((TuningWindowResult(window, 440, 1),
+                               TuningWindowResult(window, 440, 0)), SR, TuningCheckConfig())
+        self.assertEqual(report.mean_abs_cents, 0)
+        self.assertEqual(report.p95_abs_cents, 0)
+        self.assertEqual(report.coverage, 0.5)
+        self.assertEqual(report.to_dict()['windows'][1]['coverage'], 0)
+        with self.assertRaisesRegex(TuningCheckError, 'confidence'):
+            report.require_pass()
+
+    def test_direct_report_validates_settings_and_nested_evidence(self):
+        row = TuningWindowResult(ToneWindow('tone', 0, 8000, 440), 440, 1)
+        for sr in (0, -1, True, 16000.5, 4000):
+            with self.subTest(sr=sr), self.assertRaisesRegex(ValueError, 'sample_rate|Nyquist'):
+                TuningReport((row,), sr, TuningCheckConfig())
+        for controlled in ('false', 0, None):
+            with self.subTest(controlled=controlled), self.assertRaisesRegex(ValueError, 'controlled'):
+                TuningReport((row,), SR, TuningCheckConfig(), controlled)
+        with self.assertRaisesRegex(ValueError, 'config'):
+            TuningReport((row,), SR, {})
+        with self.assertRaisesRegex(ValueError, 'window'):
+            TuningReport(({},), SR, TuningCheckConfig())
+        # Even a result corrupted after construction cannot become report evidence.
+        object.__setattr__(row, 'measured_hz', float('nan'))
+        with self.assertRaisesRegex(ValueError, 'measured_hz'):
+            TuningReport((row,), SR, TuningCheckConfig())
+        target = ToneWindow('tone', 0, 8000, 440)
+        object.__setattr__(target, 'expected_hz', float('nan'))
+        with self.assertRaisesRegex(ValueError, 'expected_hz'):
+            TuningWindowResult(target, 440, 1)
+
+    def test_direct_out_of_range_evidence_cannot_pass(self):
+        for hz in (39.99, 2000.01, 3000):
+            with self.subTest(hz=hz):
+                row = TuningWindowResult(ToneWindow('outside', 0, 8000, hz), hz, 1)
+                report = TuningReport((row,), SR, TuningCheckConfig())
+                self.assertFalse(report.passed)
+                self.assertEqual(report.coverage, 0)
+                with self.assertRaisesRegex(TuningCheckError, 'out_of_range'):
+                    report.require_pass()
+
+    def test_nonfinite_aggregate_metrics_never_pass(self):
+        # Exercise the gate independently of valid observations/constructor checks.
+        report = exact_report([0])
+        for field in ('mean_abs_cents', 'p95_abs_cents'):
+            for value in (None, float('nan'), float('inf'), -float('inf')):
+                with self.subTest(field=field, value=value):
+                    with patch.object(TuningReport, field, new_callable=PropertyMock, return_value=value):
+                        self.assertFalse(report.passed)
+                        with self.assertRaisesRegex(TuningCheckError, 'nonfinite|missing'):
+                            report.require_pass()
 
 
 if __name__ == '__main__':

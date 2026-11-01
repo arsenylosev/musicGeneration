@@ -295,11 +295,18 @@ data = report.to_dict()  # JSON-safe, including failures and exclusions
 report.require_pass()   # raises TuningCheckError with .report on rejection
 ```
 
-- Target-independent normalized autocorrelation selects the period; a Hann FFT
-  with at least 8× zero padding and log-parabolic interpolation refines f0 near
-  that period, rather than blindly selecting the loudest harmonic. Search defaults
-  are 40–2000 Hz, at least four periods/64 samples, centered RMS >1e-5, and
+- Target-independent normalized autocorrelation compares **interpolated peak
+  heights**, avoiding integer-lag bias toward period multiples. Near-best period
+  candidates must also have spectral support; a Hann FFT with at least 8× zero
+  padding and log-parabolic interpolation refines f0. Search defaults are
+  40–2000 Hz, at least four periods/64 samples, centered RMS >1e-5, and
   periodic-similarity confidence >=0.9. Confidence is **not a probability**.
+- Inclusive frequency-range admission allows a small interpolation uncertainty:
+  **0.002 × sample_rate / window_samples Hz**, or 0.2% of an unpadded Fourier bin
+  (0.004 Hz for a half-second window). The report records this bin fraction and
+  method `interpolated-autocorrelation+hann-fft-v2`. Actual measured Hz is never
+  clamped to a boundary: cents and their unchanged hard floors use that value.
+  This margin is not an accuracy guarantee for arbitrary signals.
 - Each designated window is one measurement unit: its coverage is 1 when reliably
   measured, otherwise 0. Aggregate coverage is measured / expected **pitched
   windows**, not voiced time or polyphonic-note coverage. Every expected pitched
@@ -308,6 +315,13 @@ report.require_pass()   # raises TuningCheckError with .report on rejection
   sample bounds, settings, exclusions and failure reasons. Missing measurements
   are null; mean/P95 use only available measurements and are null when none exist.
   Partial coverage fails even if its available statistics look good.
+- Public result/report constructors validate finite positive measurements/targets,
+  finite confidence in [0, 1], settings and consistent missing/percussion reasons.
+  The report independently applies its configured minimum confidence and range to
+  coverage/statistics and rejects any missing/nonfinite metric. A directly
+  constructed low-confidence observation cannot pass or be hidden by good rows.
+  Standalone `TuningWindowResult.coverage` indicates measurement presence; report
+  coverage (including each serialized row) additionally applies these gates.
 - Defaults enforce <=5 cents **for every controlled tone**, plus mean <=15 and
   P95 <=15 cents. `controlled=False` applies only the aggregate gates to the same
   explicit mono windows; it does not enable polyphonic analysis. P95 uses NumPy's
@@ -331,7 +345,7 @@ covers exact boundaries, detuning signs/octaves, stronger second harmonics, DC,
 44.1/48 kHz buffers, silence, short/truncated/nonfinite/noisy windows, percussion,
 partial evidence, strict settings and a bad tone hidden by aggregate statistics.
 
-Verification (existing asset-free audio/dev environment):
+Initial feature checkpoint verification (existing asset-free audio/dev environment):
 
 ```bash
 python -m pytest tests/test_audio_tuning_check.py -q
@@ -350,6 +364,25 @@ mypy aimusic tests ui.py
   failed the suite; original code was restored before final verification.
 - Local report/logs: `tuning-check-synthetic.json`, `tuning-check-audio.log`,
   `tuning-check-full.log` under the session's approved scratch directory.
+
+Review corrections verified **2026-11-02**, same asset-free environment/commands:
+
+- Focused checker: **34 passed**, 213 subtests; lightweight/architecture/contract:
+  **304 passed**, 579 subtests, **1 optional bridge skip**, retained metadata warning.
+  Full unittest: **637 run**, **9 skipped**, no failures (63.672 s). Lint and mypy
+  clean (128 files). No task checkboxes changed.
+- Red regressions reproduced invalid direct construction, NaN/missing metrics,
+  confidence-zero acceptance, all 18 high-19-EDO/fractional-period phase cases,
+  and inclusive frequency-boundary failures. Disabling the report confidence
+  gate failed the regression suite; original code was restored before full checks.
+- Coverage includes `440 * 2**(40/19)` at 16 kHz, periods 8.5/9.5 samples, six
+  phases each, and 40/2000 Hz boundaries across six phases and three lengths.
+  Values remain identical to estimation with wider bounds. At 0.5 seconds,
+  genuinely outside 39.99/2000.01 Hz tones reject despite errors smaller than the
+  5-cent floor; stricter cents limits still reject admitted boundary measurements.
+- Logs: `tuning-evidence-red.log`, `tuning-fractional-red.log`,
+  `tuning-range-red.log`, `tuning-evidence-mutation.log`,
+  `tuning-evidence-audio.log`, `tuning-evidence-full.log` in approved scratch.
 
 **Evidence limits:** dry controlled mono tones only. Octave-ambiguous, vibrato,
 inharmonic, overlapping or arbitrary instrument audio is unproven; every report
