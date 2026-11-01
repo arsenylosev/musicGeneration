@@ -66,6 +66,82 @@ class TestAudioReconcile(unittest.TestCase):
         self.assertEqual(report.tracks[0]['note_count'], 2)
         self.assertEqual(len(report.tracks[0]['channels']), 2)
 
+    def retime_notes(self, ctx, intervals):
+        """Change endpoints independently, preserving source channels/setup."""
+        midi = mido.MidiFile(ctx.package.midi_path)
+        track = midi.tracks[1]
+        keys = [(m.channel, m.note) for m in track if m.type == 'note_on' and m.velocity > 0]
+        self.assertEqual(len(keys), len(intervals))
+        targets = dict(zip(keys, intervals))
+        events = []
+        tick = 0
+        for order, msg in enumerate(track):
+            tick += msg.time
+            if msg.type == 'end_of_track':
+                continue
+            at = tick
+            if msg.type in ('note_on', 'note_off'):
+                endpoint = 0 if msg.type == 'note_on' and msg.velocity > 0 else 1
+                at = targets[(msg.channel, msg.note)][endpoint]
+            events.append((at, order, msg))
+        rebuilt = mido.MidiTrack()
+        previous = 0
+        for at, _, msg in sorted(events, key=lambda e: e[:2]):
+            rebuilt.append(msg.copy(time=at - previous))
+            previous = at
+        rebuilt.append(mido.MetaMessage('end_of_track'))
+        midi.tracks[1] = rebuilt
+        midi.save(ctx.package.midi_path)
+
+    def test_simultaneous_intervals_match_after_one_tick_reordering(self) -> None:
+        for edo in (12, 19):
+            ctx = self.package(edo=edo, notes=(
+                NoteEvent(ton=240, toff=480, h=19, v=0.8, track='texture'),
+                NoteEvent(ton=240, toff=720, h=21, v=0.8, track='texture'),
+            ))
+            for offset in (-1, 1):
+                with self.subTest(edo=edo, offset=offset):
+                    self.retime_notes(ctx, [(240 + offset, 480 + offset), (240 - offset, 720 - offset)])
+                    report = self.reconcile(ctx)
+                    self.assertTrue(report.passed)
+                    self.assertEqual(len(report.tracks[0]['channels']), 2 if edo == 19 else 1)
+                    endpoints = [c for c in report.checks if c.field.startswith('note[')]
+                    self.assertEqual(len(endpoints), 4)
+                    self.assertTrue(all(c.outcome == 'pass' for c in endpoints))
+                    self.assertEqual(report, self.reconcile(ctx))
+
+    def test_interval_matching_reassigns_an_ambiguous_candidate(self) -> None:
+        for edo in (12, 19):
+            with self.subTest(edo=edo):
+                ctx = self.package(edo=edo, notes=(
+                    NoteEvent(ton=240, toff=480, h=19, v=0.8, track='texture'),
+                    NoteEvent(ton=240, toff=482, h=21, v=0.8, track='texture'),
+                ))
+                # The earlier observation fits both notes, the later only the short one.
+                self.retime_notes(ctx, [(241, 479), (239, 481)])
+                report = self.reconcile(ctx)
+                self.assertTrue(report.passed)
+                ends = [c.observed for c in report.checks if c.field.endswith('].end_sec')]
+                self.assertEqual(ends, [479 / 960, 481 / 960])
+
+    def test_interval_matching_is_one_to_one_and_rejects_outside_tolerance(self) -> None:
+        from aimusic.audio.analysis.reconcile import ReconciliationError
+
+        ctx = self.package(edo=19, notes=(
+            NoteEvent(ton=240, toff=480, h=19, v=0.8, track='texture'),
+            NoteEvent(ton=240, toff=480, h=21, v=0.8, track='texture'),
+            NoteEvent(ton=240, toff=720, h=23, v=0.8, track='texture'),
+        ))
+        for intervals in (
+            [(240, 480), (240, 600), (240, 720)],  # two expectations cannot reuse one observation
+            [(242, 480), (240, 480), (240, 720)],  # onset exceeds one tick
+            [(240, 482), (240, 480), (240, 720)],  # release exceeds one tick
+        ):
+            with self.subTest(intervals=intervals):
+                self.retime_notes(ctx, intervals)
+                with self.assertRaisesRegex(ReconciliationError, 'texture.*note'):
+                    self.reconcile(ctx)
+
     def test_role_alias_and_nonbinding_heuristic(self) -> None:
         ctx = self.package(name='lead')
         structure = replace(ctx.structure, tracks=[{**ctx.structure.tracks[0], 'role': 'comp'}])
@@ -157,6 +233,45 @@ class TestAudioReconcile(unittest.TestCase):
         structure = replace(ctx.structure, meter=[[0, '4/4'], [1, '6/8']])
         with self.assertRaisesRegex(ReconciliationError, 'meter.*signature'):
             self.reconcile(replace(ctx, structure=structure))
+
+    def test_meter_changes_snap_to_declared_bars_only_within_one_tick(self) -> None:
+        from aimusic.audio.analysis.reconcile import ReconciliationError
+
+        original = self.ctx.package.midi_path.read_bytes()
+        structure = replace(
+            self.ctx.structure, meter=[[0, '4/4'], [1, '3/4'], [3, '2/4']],
+            bar_table=[[0, 0.0], [1, 2.0], [2, 3.5], [3, 5.0], [4, 6.0]],
+            sections=[{'bars': [0, 4]}],
+        )
+        ctx = replace(self.ctx, structure=structure)
+        for offset in (-2, -1, 0, 1, 2):
+            with self.subTest(offset=offset):
+                self.ctx.package.midi_path.write_bytes(original)
+                midi = mido.MidiFile(self.ctx.package.midi_path)
+                midi.tracks[0].insert(-1, mido.MetaMessage(
+                    'time_signature', numerator=3, denominator=4, time=1920 + offset,
+                ))
+                midi.tracks[0].insert(-1, mido.MetaMessage(
+                    'time_signature', numerator=2, denominator=4, time=2880,
+                ))
+                midi.save(self.ctx.package.midi_path)
+                if abs(offset) > 1:
+                    with self.assertRaisesRegex(ReconciliationError, r'meter\[1\].time_sec') as error:
+                        self.reconcile(ctx)
+                    self.assertFalse(error.exception.report.passed)
+                    continue
+                report = self.reconcile(ctx)
+                self.assertTrue(report.passed)
+                changes = [c for c in report.checks if c.field.startswith('meter[')
+                           and c.field.endswith('.time_sec')]
+                self.assertEqual([c.observed for c in changes], [0.0, (1920 + offset) / 960,
+                                                               (4800 + offset) / 960])
+                bars = [c for c in report.checks if c.field.startswith('bar_table[')]
+                self.assertEqual([c.observed for c in bars], [0.0, 2.0, 3.5, 5.0, 6.0])
+                # Snapping meters must not forgive a genuinely wrong planner bar time.
+                bad = replace(structure, bar_table=[*structure.bar_table[:-1], [4, 6.0 + 2 / 960]])
+                with self.assertRaisesRegex(ReconciliationError, r'bar_table\[4\].time_sec'):
+                    self.reconcile(replace(ctx, structure=bad))
 
     def test_resolution_and_bar_indices_are_exact(self) -> None:
         from aimusic.audio.analysis.reconcile import ReconciliationError
@@ -273,6 +388,30 @@ class TestAudioReconcile(unittest.TestCase):
             self.assertFalse((self.root / 'warm').exists())
             self.assertEqual(apply.call_count, 1)
             self.assertEqual(render.call_count, 1)
+
+    def test_orchestrator_rejects_valid_replacement_until_context_is_reloaded(self) -> None:
+        import shutil
+        from aimusic.audio.from_score import validate_package
+        from aimusic.audio.orchestrator import Orchestrator
+        from aimusic.core.render_package import ContractViolation
+
+        replacement = self.package(edo=19)
+        for path in replacement.package.root.iterdir():
+            shutil.copy2(path, self.ctx.package.root / path.name)
+        reloaded = from_score(self.ctx.package.root)
+        self.assertNotEqual(reloaded.package.content_hash, self.ctx.package.content_hash)
+        self.assertTrue(validate_package(reloaded).reconciliation.passed)
+        orch = Orchestrator(
+            config={'stages': {'analysis': False, 'expressivization': False, 'render': False}},
+            cache_dir=self.root / 'cache',
+        )
+        out = self.root / 'stale'
+        with self.assertRaisesRegex(ContractViolation, 'identity changed.*expected=.*actual=') as error:
+            orch.run(self.ctx, output_dir=out)
+        self.assertIn(self.ctx.package.content_hash, str(error.exception))
+        self.assertIn(reloaded.package.content_hash, str(error.exception))
+        self.assertFalse(out.exists())
+        self.assertEqual(orch.run(reloaded, output_dir=out), out)
 
     def test_valid_hashes_do_not_bypass_reconciliation_before_groove(self) -> None:
         from unittest.mock import patch

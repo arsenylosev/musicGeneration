@@ -16,6 +16,7 @@ import yaml
 
 from aimusic.audio.from_score import AudioPackageContext, from_score, validate_package
 from aimusic.audio.manifest import content_hash_files
+from aimusic.core.render_package import ContractViolation
 
 
 STAGE_ORDER = (
@@ -142,6 +143,11 @@ class Orchestrator:
         if isinstance(midi_path, AudioPackageContext):
             # Re-open before cache access: files may have changed after admission.
             context = from_score(midi_path.package.root)
+            if context.package.content_hash != midi_path.package.content_hash:
+                raise ContractViolation(
+                    f"package identity changed since admission: expected={midi_path.package.content_hash}, "
+                    f"actual={context.package.content_hash}; reload the context"
+                )
             validation = validate_package(context)
             midi_path = context.package.midi_path
         midi_path = Path(midi_path)

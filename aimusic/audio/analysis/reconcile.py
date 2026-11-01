@@ -79,6 +79,53 @@ class _Tempo:
         return 60.0 / bpm / self.ppq
 
 
+def _within_tolerance(expected: float, observed: float, tolerance: float) -> bool:
+    return abs(expected - observed) <= tolerance + 1e-9
+
+
+def _match_note_intervals(
+    expected: list[tuple[int, int]], observed: list[tuple[int, int]],
+    planned: _Tempo, tempo: _Tempo,
+) -> dict[int, int]:
+    """Maximum one-to-one endpoint matching, deterministic in sorted input order.
+
+    An augmenting path can move an earlier match so a later note with fewer
+    candidates is not stranded. Channels stay aggregated by logical track.
+    """
+    expected_seconds = [(planned.seconds(start), planned.seconds(end)) for start, end in expected]
+    observed_bounds = [(tempo.seconds(start), tempo.seconds(end), tempo.one_tick(start), tempo.one_tick(end))
+                       for start, end in observed]
+    candidates = [
+        [j for j, (actual_start, actual_end, start_tol, end_tol) in enumerate(observed_bounds)
+         if _within_tolerance(start, actual_start, start_tol) and _within_tolerance(end, actual_end, end_tol)]
+        for start, end in expected_seconds
+    ]
+    matches: dict[int, int] = {}
+    owners: dict[int, int] = {}
+    for root in range(len(expected)):
+        pending = [root]
+        parents: dict[int, int] = {}
+        free: int | None = None
+        for i in pending:
+            for j in candidates[i]:
+                if j in parents:
+                    continue
+                parents[j] = i
+                if j not in owners:
+                    free = j
+                    break
+                pending.append(owners[j])
+            if free is not None:
+                break
+        while free is not None:
+            i = parents[free]
+            previous = matches.get(i)
+            matches[i] = free
+            owners[free] = i
+            free = previous
+    return matches
+
+
 def _effective_map(events: list[tuple[int, Any]], default: Any, field: str) -> list[tuple[int, Any]]:
     by_tick: dict[int, Any] = {}
     for tick, value in sorted(events, key=lambda e: e[0]):
@@ -210,9 +257,10 @@ def reconcile(ctx: AudioPackageContext) -> ReconciliationReport:
     tracks: list[dict[str, Any]] = []
 
     def check(field: str, expected: Any, actual: Any, tolerance: float = 0.0,
-              track: str | None = None) -> None:
-        same = expected == actual if tolerance == 0 else abs(expected - actual) <= tolerance + 1e-9
+              track: str | None = None) -> bool:
+        same = expected == actual if tolerance == 0 else _within_tolerance(expected, actual, tolerance)
         checks.append(FieldCheck(track, field, expected, actual, tolerance, 'pass' if same else 'fail'))
+        return same
 
     check('ticks_per_beat', ctx.score.ticks_per_beat, midi.ticks_per_beat)
     check('score.tempo_bpm', ctx.score.tempo_bpm, tempo.changes[0][1], TEMPO_TOLERANCE_BPM)
@@ -221,9 +269,15 @@ def reconcile(ctx: AudioPackageContext) -> ReconciliationReport:
         check(f'tempo_map[{i}].bpm', bpm, actual_bpm, TEMPO_TOLERANCE_BPM)
         check(f'tempo_map[{i}].time_sec', planned.seconds(expected_tick), tempo.seconds(tick), tempo.one_tick(tick))
     check('meter.count', len(planned_meters), len(meters))
+    bar_meters = [(float(tick), label) for tick, label in meters]
     for i, ((expected_tick, label), (tick, actual_label)) in enumerate(zip(planned_meters, meters)):
-        check(f'meter[{i}].signature', label, actual_label)
-        check(f'meter[{i}].time_sec', planned.seconds(expected_tick), tempo.seconds(tick), tempo.one_tick(tick))
+        signature_matches = check(f'meter[{i}].signature', label, actual_label)
+        timing_matches = check(f'meter[{i}].time_sec', planned.seconds(expected_tick),
+                               tempo.seconds(tick), tempo.one_tick(tick))
+        if signature_matches and timing_matches:
+            # Keep raw timing in the report, but apply an accepted change at its
+            # declared boundary so one late tick cannot delay it an entire bar.
+            bar_meters[i] = (expected_tick, actual_label)
 
     declared_names = [t['name'] for t in ctx.structure.tracks]
     source_tracks = [t for t in observed if t['notes'] or t['name'] in declared_names]
@@ -258,7 +312,15 @@ def reconcile(ctx: AudioPackageContext) -> ReconciliationReport:
             inferred = 'comping'
         checks.append(FieldCheck(name, 'role_inference', role, inferred, 0.0,
                                  'unavailable' if inferred is None else 'informational'))
-        for i, ((start, end), (actual_start, actual_end)) in enumerate(zip(expected_notes, notes)):
+        matches = _match_note_intervals(expected_notes, notes, planned, tempo)
+        check('note_matching.count', len(expected_notes), len(matches), track=name)
+        # Pair unmatched leftovers only for endpoint diagnostics; never reuse an observation.
+        unmatched = [i for i in range(len(expected_notes)) if i not in matches]
+        unused = sorted(set(range(len(notes))) - set(matches.values()))
+        matches.update(zip(unmatched, unused))
+        for i, j in sorted(matches.items()):
+            start, end = expected_notes[i]
+            actual_start, actual_end = notes[j]
             for label, expected_tick, actual_tick in (('start', start, actual_start), ('end', end, actual_end)):
                 check(f'note[{i}].{label}_sec', planned.seconds(expected_tick),
                       tempo.seconds(actual_tick), tempo.one_tick(actual_tick), name)
@@ -282,10 +344,10 @@ def reconcile(ctx: AudioPackageContext) -> ReconciliationReport:
     check('bar_table.indices', list(range(len(bars))), [b[0] for b in bars])
     tick, meter_index = 0.0, 0
     for i, (_, sec) in enumerate(bars):
-        while meter_index + 1 < len(meters) and meters[meter_index + 1][0] <= tick:
+        while meter_index + 1 < len(bar_meters) and bar_meters[meter_index + 1][0] <= tick:
             meter_index += 1
         check(f'bar_table[{i}].time_sec', sec, tempo.seconds(tick), tempo.one_tick(tick))
-        numerator, denominator = map(int, meters[meter_index][1].split('/'))
+        numerator, denominator = map(int, bar_meters[meter_index][1].split('/'))
         tick += midi.ticks_per_beat * numerator * 4.0 / denominator
     extent = float(bars[-1][1]) if bars else 0.0
     check('planner_extent_covers_score', True, occupancy <= extent + tempo.one_tick(score_end) + 1e-9)
