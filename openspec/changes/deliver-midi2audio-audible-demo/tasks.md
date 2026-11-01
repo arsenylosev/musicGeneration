@@ -128,7 +128,7 @@ Suggested message: `test(audio): record audible demo acceptance and reproducibil
 
 Scope: integration evidence and any integration-only harness adjustments, not delayed unit coverage. No quality floor may be relaxed to finish this milestone.
 
-- [ ] 11.1 Re-run core/architecture, all lightweight audio, lint/type checks and clean-wheel commands from group 1/3 in an asset-free environment; verify no new failures or quarantine violations and record separately any unchanged baseline failures.
+- [x] 11.1 Re-run core/architecture, all lightweight audio, lint/type checks and clean-wheel commands from group 1/3 in an asset-free environment; verify no new failures or quarantine violations and record separately any unchanged baseline failures.
 - [ ] 11.2 Reproduce all four examples in the pinned native lane, recording signal metrics, reconciliation, controlled tuning, provenance, cache equivalence and elapsed time; verify unsupported tuning still fails and no skipped native test is presented as acceptance evidence.
 - [ ] 11.3 Obtain human listening review of recognizable 12-EDO roles, groove on/off timing and the supported 19-EDO examples; record findings and the explicit limitation that these are rough audible demos, not mastered/CLAP/FAD-scored production audio.
 - [ ] 11.4 Review the final diff and per-capability acceptance mapping, confirm no unrelated user files or prohibited assets are staged, and commit only the integration evidence/harness changes as C10; present MUS-34 completion evidence, partial MUS-35 status and remaining follow-up scope without changing tickets or opening PRs.

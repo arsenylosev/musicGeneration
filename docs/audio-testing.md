@@ -393,6 +393,33 @@ diffusion gating remain follow-up work, with MUS-34 → MUS-35 → MUS-36 → MU
 MUS-38 dependencies unchanged. No native acceptance, human listening approval,
 CLAP/FAD or production-quality claim is made.
 
+## Final asset-free verification (11.1)
+
+Re-run on 2026-11-02 with Python 3.12.12 and no FluidSynth library, SoundFont,
+GPU, credentials, or live service required:
+
+```bash
+python -m pytest tests/test_architecture.py tests/test_render_package.py -q
+python -m pytest tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q
+python -m unittest discover -s tests -p 'test_*.py'
+python -m pytest tests/test_audio_wheel.py -q
+flake8 aimusic tests ui.py
+mypy aimusic tests ui.py
+openspec validate --all --strict --no-interactive
+```
+
+- Core architecture/contract: **17 passed**, 13 subtests.
+- Lightweight audio/architecture/contract: **340 passed**, 642 subtests;
+  **1 skipped** optional bridge test.
+- Full unittest discovery: **673 run**, **9 skipped**, no failures (79.701 s).
+- Isolated wheel/profile/demo-source smoke: **1 passed**.
+- Flake8, mypy (133 source files), and strict OpenSpec validation: clean.
+
+These results complete only the asset-free cross-lane check. Skips are not native
+evidence. Tasks 1.3, 7.4–7.5, 8.2–8.3, 9.3–9.4, 10.3–10.4 and 11.2–11.4 remain
+open pending an approved SoundFont, native FluidSynth evidence, complete four-run
+artifacts, and human listening review.
+
 ## Risks
 
 | Risk | Mitigation |
