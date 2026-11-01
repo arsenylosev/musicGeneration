@@ -373,6 +373,31 @@ class TestReviewPublication(unittest.TestCase):
             self.assertEqual(manifest['metadata']['diff_report'], str(out) + '.diff.json')
             self.assertFalse(Path(str(out) + '.json').is_symlink())
 
+    def test_meter_anticipation_uses_indexed_event_visits(self):
+        from dataclasses import replace
+        from aimusic.audio.groove.apply import _apply_to_events
+        from aimusic.audio.groove.spec import parse_groove_spec
+        from aimusic.audio.midi_events import MidiEvents
+        from tests.test_audio_midi_scaling import representative
+        visits = []
+        for size in (2000, 4000):
+            count = 0
+
+            class CountedEvents(tuple):
+                def __iter__(self):
+                    nonlocal count
+                    for event in super().__iter__():
+                        count += 1
+                        yield event
+
+            source = MidiEvents.from_mido(representative(size))
+            source = replace(source, events=CountedEvents(source.events))
+            out, _ = _apply_to_events(source, parse_groove_spec(
+                {'anticipation': {'comp': {'prob': 1, 'push_ms': [1, 1]}}}))
+            self.assertEqual(len(out.notes), size // 4)
+            visits.append(count)
+        self.assertLessEqual(visits[1], visits[0] * 2.7, str(visits))
+
     def test_rational_swing_half_even_at_low_ppqn(self):
         import mido
         from tests.test_audio_midi_events import track

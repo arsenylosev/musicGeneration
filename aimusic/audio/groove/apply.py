@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import math
+from bisect import bisect_right
 from pathlib import Path
 from fractions import Fraction
 from typing import Any
@@ -118,6 +119,9 @@ def _apply_to_events(
     depth = 0.0 if light_cleanup else 1.0
     names = {e.track: e.message.name.lower() for e in midi.events
              if e.message.type == "track_name"}
+    meters = [(0, 4, 4)] + [(e.tick, e.message.numerator, e.message.denominator)
+                            for e in midi.events if e.message.type == "time_signature"]
+    meter_ticks = [item[0] for item in meters]
     targets = {}
     ghosts = []
     note_diffs: list[dict[str, Any]] = []
@@ -138,10 +142,7 @@ def _apply_to_events(
         if depth and spec.anticipation is not None:
             ant = getattr(spec.anticipation, role, None)
             if ant is not None and ant.push_ms and ant.prob >= 1.0:
-                meter_tick, numerator, denominator = 0, 4, 4
-                for e in midi.events:
-                    if e.tick <= note.start and e.message.type == "time_signature":
-                        meter_tick, numerator, denominator = e.tick, e.message.numerator, e.message.denominator
+                meter_tick, numerator, denominator = meters[bisect_right(meter_ticks, note.start) - 1]
                 bar_ticks = Fraction(midi.ticks_per_beat * numerator * 4, denominator)
                 bar_start = note.start - (note.start - meter_tick) % bar_ticks
                 if start_seconds - tempo.seconds(bar_start) < Fraction(3, 100):

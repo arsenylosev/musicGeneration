@@ -49,7 +49,8 @@ preserved unless a retimed event requires extending its track.
 - Ordinary persistent controllers keep their original timeline. An earlier note
   may need additive initial-state replay. Later notes do not rewind volume/pan/
   sustain automation. Replay that changes another sounding voice is rejected;
-  unchanged voices also retain ordinary-controller trajectories. Program/bank and pitch/expression state are reconstructed
+  unchanged voices also retain ordinary-controller trajectories. Program/bank and
+  pitch/expression state are reconstructed
   for each intended voice. Bank selects latch on program change; replay also
   preserves pending bank selects for later source programs. RPN replay is an
   ordered select/data transaction;
@@ -78,7 +79,8 @@ Opaque SysEx is preserved, not interpreted. Every moved channel event, not just
 note endpoints, is checked against opaque SysEx boundaries (including same-tick
 order). SysEx invalidates channel snapshots: defaults/pre-reset values are no
 longer known. Retiming within a region may proceed without replay, but replay
-requiring unknown state fails closed. Ghosts cannot copy state across MTS/SysEx. Preserving MTS bytes does **not**
+requiring unknown state fails closed. Ghosts cannot copy state across MTS/SysEx.
+Preserving MTS bytes does **not**
 prove MTS rendering capability. Active MPE master-zone interpretation, alternate
 hold pedals/channel-mode resets, device-dependent relative parameter increment/
 decrement and replay of unknown/device-specific RPN/NRPN parameters are not
@@ -100,14 +102,13 @@ source and each other. All three are serialized and staged before publication;
 leaf entries are atomically replaced, never opened for writing through a link.
 Publication errors roll back existing artifacts. This is per-file atomicity, not
 a crash-atomic multi-file transaction; concurrent writers to one bundle are not
-supported. These checks
-certify MIDI-event fidelity only, not audible f0, instrument quality, CLAP or FAD.
+supported. These checks certify MIDI-event fidelity only, not audible f0, instrument quality, CLAP or FAD.
 Stem isolation and renderer capability enforcement are separate later tasks.
 
 ## Verification
 
 ```bash
-python -m pytest tests/test_audio_midi_events.py tests/test_audio_groove.py tests/test_architecture.py -q
+python -m pytest tests/test_audio_midi_events.py tests/test_audio_midi_scaling.py tests/test_audio_groove.py tests/test_architecture.py -q
 python -m unittest discover -s tests -p 'test_*.py'
 flake8 aimusic tests ui.py
 mypy aimusic tests ui.py
@@ -117,6 +118,10 @@ No native synth, SoundFont, network, GPU or key is needed. The regression suite
 includes randomized controller order and MPE shift properties, tempo-boundary
 and half-even offsets, payload comparisons, source immutability, safe ghosts,
 same-tick channel reuse, incompatible trajectories and pedal-held conflicts.
+Expression association uses an active-voice sweep; tempo/meter, event identity and
+channel boundary lookups are indexed. Safe ghosts are reserved and inserted as a
+batch with a single snapshot pass and reparse. See the deterministic 2k/4k
+[scaling guard](audio-testing.md#deterministic-scaling-guard).
 
 References: [mido SMF delta-time/type semantics](https://mido.readthedocs.io/en/latest/files/midi.html),
 [parameter selection and relative-controller ambiguity](https://philrees.co.uk/nrpnq.htm),

@@ -6,9 +6,10 @@ ports and ambiguous note/channel ownership are deliberately unsupported.
 """
 from __future__ import annotations
 
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
 from heapq import heappop, heappush
+from functools import cached_property
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -66,26 +67,26 @@ class TempoMap:
     ticks_per_beat: int
     changes: tuple[tuple[int, int], ...]
 
+    @cached_property
+    def _segments(self) -> tuple[tuple[int, ...], tuple[Fraction, ...], tuple[int, ...]]:
+        ticks, seconds, tempos = [0], [Fraction(0)], [500000]
+        for at, tempo in self.changes:
+            seconds.append(seconds[-1] + Fraction((at - ticks[-1]) * tempos[-1],
+                                                   1000000 * self.ticks_per_beat))
+            ticks.append(at)
+            tempos.append(tempo)
+        return tuple(ticks), tuple(seconds), tuple(tempos)
+
     def seconds(self, tick: int | Fraction) -> Fraction:
-        elapsed = Fraction(0)
-        previous, tempo = 0, 500000
-        for at, new_tempo in self.changes:
-            if at > tick:
-                break
-            elapsed += Fraction((at - previous) * tempo, 1000000 * self.ticks_per_beat)
-            previous, tempo = at, new_tempo
-        return elapsed + (tick - previous) * Fraction(tempo, 1000000 * self.ticks_per_beat)
+        ticks, seconds, tempos = self._segments
+        index = max(0, bisect_right(ticks, tick) - 1)
+        return seconds[index] + (tick - ticks[index]) * Fraction(tempos[index], 1000000 * self.ticks_per_beat)
 
     def tick(self, seconds: float | Fraction) -> Fraction:
-        remaining = rational(seconds)
-        previous, tempo = 0, 500000
-        for at, new_tempo in self.changes:
-            span = Fraction((at - previous) * tempo, 1000000 * self.ticks_per_beat)
-            if remaining < span:
-                break
-            remaining -= span
-            previous, tempo = at, new_tempo
-        return previous + remaining * Fraction(1000000 * self.ticks_per_beat, tempo)
+        ticks, starts, tempos = self._segments
+        value = rational(seconds)
+        index = max(0, bisect_right(starts, value) - 1)
+        return ticks[index] + (value - starts[index]) * Fraction(1000000 * self.ticks_per_beat, tempos[index])
 
     def shift(self, tick: int, seconds: float | Fraction) -> int:
         target = self.tick(max(Fraction(0), self.seconds(tick) + rational(seconds)))
@@ -191,34 +192,24 @@ class MidiEvents:
         if any(held.values()):
             raise MidiEventError('Unreleased sustain: sounding notes have no pedal release')
         ordered_notes = tuple(notes[i] for i in sorted(notes))
-        for i, event in enumerate(events):
-            if not is_expression(event.message):
-                continue
-            ids = tuple(n.id for n in ordered_notes if n.channel == event.channel
-                        and ((n.on < i < n.off) or (n.end <= event.tick < n.sounding_end)
-                             or (n.start == event.tick and i < n.on))
-                        and (event.message.type != 'polytouch' or n.pitch == event.message.note))
-            if not ids:
-                # A release reset immediately following a key-off belongs to
-                # that lifetime, unless a new note at this tick owns the setup.
-                ids = tuple(n.id for n in ordered_notes if n.channel == event.channel
-                            and n.end == n.sounding_end == event.tick and n.off < i
-                            and (event.message.type != 'polytouch' or n.pitch == event.message.note))
-            events[i] = replace(event, note_ids=ids)
+        events = _associate_expression(events, ordered_notes)
         return cls(midi.type, midi.ticks_per_beat, len(midi.tracks), midi.charset,
                    tuple(events), ordered_notes)
 
-    @property
+    @cached_property
     def tempo_map(self) -> TempoMap:
         return TempoMap(self.ticks_per_beat, tuple(
             (e.tick, e.message.tempo) for e in self.events if e.message.type == 'set_tempo'))
 
     def to_mido(self) -> Any:
         midi = mido.MidiFile(type=self.type, ticks_per_beat=self.ticks_per_beat, charset=self.charset)
-        for tr in range(self.track_count):
+        tracks: list[list[MidiEvent]] = [[] for _ in range(self.track_count)]
+        for event in sorted(self.events, key=lambda e: e.key):
+            tracks[event.track].append(event)
+        for events in tracks:
             track = mido.MidiTrack()
             previous = 0
-            for event in sorted((e for e in self.events if e.track == tr), key=lambda e: e.key):
+            for event in events:
                 track.append(event.message.copy(time=event.tick - previous))
                 previous = event.tick
             midi.tracks.append(track)
@@ -226,6 +217,55 @@ class MidiEvents:
 
     def save(self, path: Path | str) -> None:
         self.to_mido().save(str(path))
+
+
+def _associate_expression(events: list[MidiEvent], notes: tuple[MidiNote, ...]) -> list[MidiEvent]:
+    """Sweep active/held voices and same-tick setups, rather than scan all notes."""
+    starts: dict[tuple[int, int], list[int]] = {}
+    for note in notes:
+        starts.setdefault((note.channel, note.start), []).append(note.id)
+    active: dict[int, set[int]] = {}
+    held_ends: list[tuple[int, int]] = []
+    releases: dict[int, list[int]] = {}
+    previous_tick = -1
+    for i, event in enumerate(events):
+        if event.tick != previous_tick:
+            releases.clear()
+            previous_tick = event.tick
+        while held_ends and held_ends[0][0] <= event.tick:
+            _, note_id = heappop(held_ends)
+            active[notes[note_id].channel].discard(note_id)
+        channel, msg = event.channel, event.message
+        if channel is None:
+            continue
+        sounding = active.setdefault(channel, set())
+        if msg.type == 'note_on' and msg.velocity:
+            sounding.add(event.note_ids[0])
+        elif msg.type in ('note_on', 'note_off'):
+            note_id = event.note_ids[0]
+            note = notes[note_id]
+            if note.sounding_end > note.end:
+                heappush(held_ends, (note.sounding_end, note_id))
+            else:
+                sounding.remove(note_id)
+                releases.setdefault(channel, []).append(note_id)
+        elif is_expression(msg):
+            ids = sounding | {n for n in starts.get((channel, event.tick), []) if notes[n].on > i}
+            if msg.type == 'polytouch':
+                ids = {n for n in ids if notes[n].pitch == msg.note}
+            if not ids:
+                ids = {n for n in releases.get(channel, [])
+                       if msg.type != 'polytouch' or notes[n].pitch == msg.note}
+            events[i] = replace(event, note_ids=tuple(sorted(ids)))
+    return events
+
+
+def _channel_indices(events: tuple[MidiEvent, ...]) -> dict[int, list[int]]:
+    result: dict[int, list[int]] = {}
+    for i, event in enumerate(events):
+        if event.channel is not None:
+            result.setdefault(event.channel, []).append(i)
+    return result
 
 
 @dataclass(frozen=True)
@@ -386,8 +426,13 @@ def _order_boundaries(source: MidiEvents, moved: list[MidiEvent]) -> list[MidiEv
     """Stable order except release bundles that must precede a reused channel."""
     changed = {(e.track, e.tick) for e, old in zip(moved, source.events)
                if e.tick != old.tick and e.note_ids}
-    for track, tick in changed:
-        group = sorted((e for e in moved if e.track == track and e.tick == tick), key=lambda e: e.key)
+    groups: dict[tuple[int, int], list[MidiEvent]] = {}
+    for event in moved:
+        if (event.track, event.tick) in changed:
+            groups.setdefault((event.track, event.tick), []).append(event)
+    positions: dict[tuple[int, int], Fraction] = {}
+    for (track, tick), members in groups.items():
+        group = sorted(members, key=lambda e: e.key)
         starts = [e for e in group if e.message.type == 'note_on' and e.message.velocity]
         ends = [e for e in group if e.message.type == 'note_off' or
                 (e.message.type == 'note_on' and not e.message.velocity)]
@@ -406,10 +451,9 @@ def _order_boundaries(source: MidiEvents, moved: list[MidiEvent]) -> list[MidiEv
                 group = [e for e in group if e not in release]
                 before = min(group.index(e) for e in setup)
                 group[before:before] = release
-        positions = {e.order: Fraction(i * 2) for i, e in enumerate(group)}
-        moved = [replace(e, sort_order=positions[e.order]) if e.track == track and e.tick == tick else e
-                 for e in moved]
-    return moved
+        positions.update({(track, e.order): Fraction(i * 2) for i, e in enumerate(group)})
+    return [replace(e, sort_order=positions[(e.track, e.order)]) if (e.track, e.order) in positions else e
+            for e in moved]
 
 
 def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
@@ -448,9 +492,12 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
             raise ChannelStateConflict(f'Unsupported pedal/channel-mode CC {msg.control} in retiming')
         moved.append(replace(e, tick=at, message=msg))
     # EOT is a container boundary, not automation: extend only if necessary.
+    track_ends: dict[int, int] = {}
+    for e in moved:
+        track_ends[e.track] = max(track_ends.get(e.track, 0), e.tick)
     for i, e in enumerate(moved):
         if e.message.type == 'end_of_track':
-            moved[i] = replace(e, tick=max(e.tick, max(x.tick for x in moved if x.track == e.track)))
+            moved[i] = replace(e, tick=track_ends[e.track])
     moved = _order_boundaries(source, moved)
     moved_by_id = {(e.track, e.order): e for e in moved}
     sysex_keys = [e.key for e in source.events if e.message.type == 'sysex']
@@ -498,6 +545,7 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
         raise ChannelStateConflict(f'Invalid retimed channel state/pairing: {exc}') from exc
     # Pair by source event identity, not pitch or chronological note index.
     notes = []
+    positions = {(e.track, e.order): i for i, e in enumerate(replayed)}
     parsed_by_key = {(n.track, n.channel, n.pitch, n.start): n for n in parsed.notes}
     for n in source.notes:
         t = targets[n.id]
@@ -505,12 +553,19 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
         expected_release = n.sounding_end if n.sounding_end > n.end else t.end
         if observed.sounding_end != expected_release:
             raise _conflict(n, 'sustain lifetime changed')
-        on = next(i for i, e in enumerate(replayed) if e.track == n.track and e.order == source.events[n.on].order)
-        off = next(i for i, e in enumerate(replayed) if e.track == n.track and e.order == source.events[n.off].order)
+        on = positions[(n.track, source.events[n.on].order)]
+        off = positions[(n.track, source.events[n.off].order)]
         notes.append(replace(n, start=t.start, end=t.end, velocity=t.velocity,
                              sounding_end=observed.sounding_end, on=on, off=off))
     candidate = replace(candidate, notes=tuple(notes))
     actual_states = _snapshots(candidate.events)
+    source_channels = _channel_indices(source.events)
+    source_ticks = {channel: [source.events[i].tick for i in indices] for channel, indices in source_channels.items()}
+    boundaries: dict[int, dict[int, int]] = {}
+    for i, e in enumerate(candidate.events):
+        if e.channel is not None:
+            boundaries.setdefault(e.channel, {})[e.tick] = i
+    boundary_ticks = {channel: list(ticks) for channel, ticks in boundaries.items()}
     for n, new_note in zip(source.notes, candidate.notes):
         ordinary = (n.start, n.end) == (new_note.start, new_note.end)
         expected = _protected(original_states[n.on], n.pitch, ordinary)
@@ -518,12 +573,11 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
             raise _conflict(n, 'initial pitch/expression state changed')
         changes = []
         previous = expected
-        for i in range(n.on + 1, len(source.events)):
+        indices = source_channels[n.channel]
+        first = bisect_right(indices, n.on)
+        stop = bisect_left(source_ticks[n.channel], n.sounding_end)
+        for i in indices[first:stop]:
             e = source.events[i]
-            if e.tick >= n.sounding_end:
-                break
-            if e.channel != n.channel:
-                continue
             current = _protected(original_states[i], n.pitch, ordinary)
             delta = {k: v for k, v in current.items() if previous.get(k, 0) != v}
             if delta:
@@ -536,12 +590,12 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
         change_index = 0
         # Compare at every channel-event boundary, including other voices' bends,
         # replay transactions and automation; transient setup at one tick is atomic.
-        audit_ticks = sorted({e.tick for e in candidate.events if e.channel == n.channel
-                        and new_note.start <= e.tick < new_note.sounding_end})
+        channel_ticks = boundary_ticks[n.channel]
+        audit_ticks = channel_ticks[bisect_left(channel_ticks, new_note.start):bisect_left(channel_ticks, new_note.sounding_end)]
         for tick in audit_ticks:
             while change_index < len(changes) and changes[change_index][0] <= tick:
                 expected.update(changes[change_index][2]); change_index += 1
-            last = max(i for i, e in enumerate(candidate.events) if e.channel == n.channel and e.tick == tick)
+            last = boundaries[n.channel][tick]
             actual = _protected(actual_states[last], n.pitch, ordinary)
             if any(actual.get(k, 0) != expected.get(k, 0) for k in actual.keys() | expected.keys()):
                 raise _conflict(n, f'incompatible simultaneous pitch/expression state at tick {tick}')
@@ -554,31 +608,56 @@ def add_ghosts(source: MidiEvents, ghosts: list[tuple[int, NoteTiming]]) -> Midi
     A duplicate key during an existing voice is not a portable MIDI note pair.
     Neither a new channel nor a shortened original voice is silently invented.
     """
-    result = source
+    if not ghosts:
+        return source
+    snapshots = _snapshots(source.events)
+    channels = _channel_indices(source.events)
+    channel_keys = {channel: [source.events[i].key for i in indices] for channel, indices in channels.items()}
+    sysex = [i for i, e in enumerate(source.events) if e.message.type == 'sysex']
+    sysex_keys = [source.events[i].key for i in sysex]
+    occupied: dict[int, list[tuple[int, int]]] = {}
+    for n in source.notes:
+        occupied.setdefault(n.channel, []).append((n.start, n.sounding_end))
+    # Merge ghost reservations with original voices in one interval sweep.
+    reservations: dict[int, list[tuple[int, int, int]]] = {}
     for note_id, timing in ghosts:
         note = source.notes[note_id]
-        if any(n.channel == note.channel and n.start < timing.end and timing.start < n.sounding_end
-               for n in result.notes):
-            raise _conflict(note, 'ghost note overlap with an existing sounding note')
         if timing.start < 0 or timing.end <= timing.start or not 1 <= timing.velocity <= 127:
             raise _conflict(note, 'invalid ghost timing/velocity')
-        if any(timing.start < e.tick < timing.end and
-               (e.channel == note.channel or e.message.type == 'sysex') for e in result.events):
-            raise _conflict(note, 'ghost crosses channel state automation')
-        sysex_keys = [e.key for e in source.events if e.message.type == 'sysex']
-        if bisect_left(sysex_keys, source.events[note.on].key) != bisect_left(sysex_keys, (timing.start, note.track, Fraction(10**20))):
+        reservations.setdefault(note.channel, []).append((timing.start, timing.end, note_id))
+    for channel, requested in reservations.items():
+        intervals: list[tuple[int, int, int | None]] = [(start, end, None) for start, end in occupied.get(channel, [])]
+        intervals.extend(requested)
+        end, ghost_end = -1, -1
+        for start, stop, owner in sorted(intervals, key=lambda item: item[:2]):
+            if (owner is not None and start < end) or start < ghost_end:
+                note = source.notes[owner if owner is not None else requested[0][2]]
+                raise _conflict(note, 'ghost note overlap with an existing sounding note')
+            end = max(end, stop)
+            if owner is not None:
+                ghost_end = stop
+    events = list(source.events)
+    order = max(e.order for e in events) + 1
+    track_ends: dict[int, int] = {}
+    added: list[tuple[MidiNote, NoteTiming, int, int]] = []
+    for number, (note_id, timing) in enumerate(ghosts):
+        note = source.notes[note_id]
+        # Start follows source events in the note's track; release/restore precede
+        # source setup at the ending tick. Use exact keys, including other tracks.
+        start_key = timing.start, note.track, Fraction(order)
+        end_key = timing.end, note.track, Fraction(-1)
+        region = bisect_left(sysex_keys, start_key)
+        if bisect_left(sysex_keys, source.events[note.on].key) != region:
             raise _conflict(note, 'ghost crosses opaque SysEx boundary')
-        snapshots = _snapshots(result.events)
-        current = dict(_DEFAULTS)
-        for e, state in zip(result.events, snapshots):
-            if e.tick <= timing.start:
-                if e.message.type == 'sysex':
-                    current = {('opaque', 0): 1}
-                elif e.channel == note.channel:
-                    current = state
-        wanted = _snapshots(source.events)[note.on]
-        events = list(result.events)
-        order = max(e.order for e in events) + 1
+        keys = channel_keys.get(note.channel, [])
+        before = bisect_left(keys, start_key)
+        if before < bisect_left(keys, end_key) or region < bisect_left(sysex_keys, end_key):
+            raise _conflict(note, 'ghost crosses channel state automation')
+        previous = channels[note.channel][before - 1] if before else -1
+        reset = sysex[region - 1] if region else -1
+        current = (snapshots[previous] if previous > reset else
+                   {('opaque', 0): 1} if reset >= 0 else dict(_DEFAULTS))
+        wanted = snapshots[note.on]
         setup = _replay(current, wanted, note.channel)
         ghost_state = dict(current)
         for msg in setup:
@@ -589,30 +668,31 @@ def add_ghosts(source: MidiEvents, ghosts: list[tuple[int, NoteTiming]]) -> Midi
                                                  note=note.pitch, velocity=timing.velocity)))
         bundle.append((timing.end, mido.Message('note_off', channel=note.channel, note=note.pitch)))
         bundle.extend((timing.end, m) for m in restore)
-        ghost_id = len(result.notes)
+        ghost_id = len(source.notes) + number
         for i, (tick, msg) in enumerate(bundle):
             priority = Fraction(i - len(bundle) - 1) if tick == timing.end else None
             events.append(MidiEvent(tick, note.track, order + i, freeze_message(msg), (ghost_id,), priority))
-        for i, e in enumerate(events):
-            if e.track == note.track and e.message.type == 'end_of_track':
-                events[i] = replace(e, tick=max(e.tick, timing.end), sort_order=Fraction(order + len(bundle)))
-        candidate = replace(result, events=tuple(sorted(events, key=lambda e: e.key)))
-        try:
-            parsed = MidiEvents.from_mido(candidate.to_mido())
-        except MidiEventError as exc:
-            raise _conflict(note, f'ghost pairing/state invalid: {exc}') from exc
-        positions = {(e.track, e.order): i for i, e in enumerate(candidate.events)}
-        notes = []
-        for old in result.notes:
-            on, off = result.events[old.on], result.events[old.off]
-            notes.append(replace(old, on=positions[(on.track, on.order)],
-                                 off=positions[(off.track, off.order)]))
-        ghost = next(n for n in parsed.notes if n.track == note.track and
-                     n.channel == note.channel and n.pitch == note.pitch and n.start == timing.start)
+        added.append((note, timing, order + len(setup), order + len(setup) + 1))
+        order += len(bundle)
+        track_ends[note.track] = max(track_ends.get(note.track, 0), timing.end)
+    for i, e in enumerate(events):
+        if e.track in track_ends and e.message.type == 'end_of_track':
+            events[i] = replace(e, tick=max(e.tick, track_ends[e.track]), sort_order=Fraction(order))
+    candidate = replace(source, events=tuple(sorted(events, key=lambda e: e.key)))
+    try:
+        parsed = MidiEvents.from_mido(candidate.to_mido())
+    except MidiEventError as exc:
+        raise ChannelStateConflict(f'ghost pairing/state invalid: {exc}') from exc
+    positions = {(e.track, e.order): i for i, e in enumerate(candidate.events)}
+    notes = []
+    for old in source.notes:
+        on, off = source.events[old.on], source.events[old.off]
+        notes.append(replace(old, on=positions[(on.track, on.order)], off=positions[(off.track, off.order)]))
+    parsed_by_key = {(n.track, n.channel, n.pitch, n.start): n for n in parsed.notes}
+    for note, timing, on_order, off_order in added:
+        ghost = parsed_by_key[(note.track, note.channel, note.pitch, timing.start)]
         if ghost.sounding_end != timing.end:
             raise _conflict(note, 'ghost sustain lifetime exceeds its safe channel gap')
-        notes.append(replace(ghost, id=ghost_id,
-                             on=positions[(note.track, order + len(setup))],
-                             off=positions[(note.track, order + len(setup) + 1)]))
-        result = replace(candidate, notes=tuple(notes))
-    return result
+        notes.append(replace(ghost, id=len(notes), on=positions[(note.track, on_order)],
+                             off=positions[(note.track, off_order)]))
+    return replace(candidate, notes=tuple(notes))

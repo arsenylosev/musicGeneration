@@ -70,8 +70,29 @@ round-trip, tempo-map, expression, sustain-conflict and independent 19-EDO pitch
 reconstruction tests. These are MIDI-event checks, not native audio measurements.
 
 ```bash
-python -m pytest tests/test_audio_midi_events.py tests/test_audio_groove.py tests/test_architecture.py -q
+python -m pytest tests/test_audio_midi_events.py tests/test_audio_midi_scaling.py tests/test_audio_groove.py tests/test_architecture.py -q
 ```
+
+### Deterministic scaling guard
+
+`test_audio_midi_scaling.py` profiles module operation counts, not elapsed time,
+for approximately 2k/4k source events (500/1000 notes, bends, CC74, tempo changes).
+Parsing, retiming and one ghost per note must each grow by at most **2.7×** when
+input doubles. Groove anticipation separately counts event visits to guard meter
+lookups. Batched ghosts are also compared with incremental insertion, and the
+expression sweep is checked against the lifetime-based association definition.
+
+Measured with Python 3.12 during review remediation:
+
+| Phase | Before 2k → 4k calls | Indexed 2k → 4k calls |
+|-------|---------------------|-----------------------|
+| Parse | 510,546 → 2,021,086 | 9,548 → 19,088 |
+| Retime | 3,625,270 → 14,300,500 | 93,297 → 186,547 |
+| Ghost batch | not used as a timing gate | 104,045 → 208,175 |
+
+These are deterministic regression signals, not synth throughput or audio-quality
+claims. Work still scales with actual simultaneous voice/event intersections;
+unbounded sustained polyphony is not promised linear cost.
 
 ## Risks
 
