@@ -160,16 +160,29 @@ class TestAudioEntry(unittest.TestCase):
             self.assertIn("not found", result.stderr.lower())
 
     def test_full_render_writes_stems(self) -> None:
+        import soundfile as sf
+
         with tempfile.TemporaryDirectory() as tmp:
-            package_root = _generate_package(Path(tmp))
+            package_root = _generate_package(Path(tmp) / 'generated')
+            originals = {p: p.read_bytes() for p in package_root.iterdir() if p.is_file()}
+            output = Path(tmp) / 'audio'
             result = _run_cli(
                 "render-audio",
                 str(package_root),
+                "--profile", "preview", "--output-dir", str(output),
                 "--no-validate-only",
             )
             self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
             self.assertIn("Audio render OK", result.stdout)
             self.assertIn("rough_mix", result.stdout.lower())
+            stems = list((output / 'stems').glob('track_*.wav'))
+            self.assertTrue(stems)
+            for wav in stems + [output / 'stems/rough_mix.wav']:
+                self.assertGreater(wav.stat().st_size, 44)
+                samples, rate = sf.read(wav)
+                self.assertGreater(samples.size, 0)
+                self.assertEqual(rate, 48000)
+            self.assertEqual(originals, {p: p.read_bytes() for p in package_root.iterdir() if p.is_file()})
 
     def test_core_import_still_light(self) -> None:
         code = (

@@ -21,6 +21,7 @@ from typing import Any
 import yaml
 
 from aimusic.audio.from_score import AudioPackageContext, ValidationReport, from_score, validate_package
+from aimusic.audio.from_midi import ImportedMidiContext, from_midi
 from aimusic.audio.manifest import content_hash_files
 from aimusic.audio.inputs import InputSnapshot
 from aimusic.audio.cache import MANIFEST, cached_stage, fingerprint, restored_entry
@@ -150,7 +151,7 @@ class Orchestrator:
         }
 
     def run(
-        self, midi_path: Path | str | AudioPackageContext, *,
+        self, midi_path: Path | str | AudioPackageContext | ImportedMidiContext, *,
         output_dir: Path | str | None = None,
     ) -> Path:
         """Execute analysis → expressivization → render (M1 spine)."""
@@ -158,12 +159,13 @@ class Orchestrator:
             scratch = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='.audio-run-')))
             return self._run_snapshot(midi_path, output_dir, scratch, stack)
 
-    def _run_snapshot(self, midi_path: Path | str | AudioPackageContext, output_dir: Path | str | None,
+    def _run_snapshot(self, midi_path: Path | str | AudioPackageContext | ImportedMidiContext, output_dir: Path | str | None,
                       scratch: Path, stack: ExitStack) -> Path:
-        context = None
+        context: AudioPackageContext | ImportedMidiContext | None = None
         validation = None
         is_package = isinstance(midi_path, AudioPackageContext)
-        source = midi_path.package.root if isinstance(midi_path, AudioPackageContext) else Path(midi_path)
+        source = (midi_path.package.root if isinstance(midi_path, AudioPackageContext) else
+                  midi_path.midi_path if isinstance(midi_path, ImportedMidiContext) else Path(midi_path))
         inputs = InputSnapshot.capture(source, scratch / 'inputs', package=is_package)
         if isinstance(midi_path, AudioPackageContext):
             # Parse, validate and reconcile one private, verified package snapshot.
@@ -175,6 +177,11 @@ class Orchestrator:
                 )
             validation = validate_package(context)
             midi_path = context.package.midi_path
+        elif isinstance(midi_path, ImportedMidiContext):
+            context = from_midi(inputs.files[0].path)
+            if context.source_sha256 != midi_path.source_sha256:
+                raise ValueError('imported MIDI identity changed since admission; reload the context')
+            midi_path = context.midi_path
         else:
             midi_path = inputs.files[0].path
         inputs.verify()
@@ -193,6 +200,8 @@ class Orchestrator:
         names = []
         if context:
             names += [f'{midi_path.stem}.reconciliation.json', f'{midi_path.stem}.analysis.json']
+            if isinstance(context, ImportedMidiContext):
+                names += ['source.mid']
         elif stages.get('analysis', True):
             names += [f'{midi_path.stem}.analysis.json', f'{midi_path.stem}.analysis.json.json']
         if stages.get('expressivization', True):
@@ -203,7 +212,8 @@ class Orchestrator:
         root.check_new_files(names)
         stem_root = None
         if stages.get('render', True):
-            metadata = {'tracks': list(validation.reconciliation.tracks)} if validation else None
+            metadata = ({'tracks': list(validation.reconciliation.tracks)} if validation else
+                        context.analysis_document() if context else None)
             logical = isolate_source_stems(MidiEvents.load(midi_path), analysis=metadata)
             stem_names = stem_artifact_names(logical) + ['render.json', MANIFEST]
             stem_root = stack.enter_context(pin_output(out / 'stems'))
@@ -218,7 +228,7 @@ class Orchestrator:
                 stem_root.publish(scratch / 'stems', stem_names)
         return out
 
-    def _run_stages(self, midi_path: Path, out: Path, context: AudioPackageContext | None,
+    def _run_stages(self, midi_path: Path, out: Path, context: AudioPackageContext | ImportedMidiContext | None,
                     validation: ValidationReport | None, verify_inputs: Callable[[], None]) -> None:
         """Compute/restore privately; only run() may publish into the user tree."""
         stages = self.config.get("stages", {})
@@ -234,7 +244,7 @@ class Orchestrator:
                          for p in sorted(Path(__file__).parent.rglob('*.py'))}
         source_identity = {'midi_sha256': file_digest(midi_path),
                            **(context.verified_identity if context else {})}
-        if context:
+        if isinstance(context, AudioPackageContext):
             source_identity['structure_sha256'] = file_digest(context.package.structure_path)
             source_identity['tuning_sha256'] = file_digest(context.package.tuning_path)
         analysis_doc: dict[str, Any] | None = None
@@ -242,6 +252,10 @@ class Orchestrator:
 
         if context is not None:
             analysis_doc = context.analysis_document()
+            if isinstance(context, ImportedMidiContext):
+                shutil.copyfile(midi_path, out / 'source.mid')
+                (out / f"{midi_path.stem}.reconciliation.json").write_text(
+                    json.dumps(context.reconciliation, indent=2, sort_keys=True), encoding='utf-8')
             if validation is not None:
                 analysis_doc["tracks"] = list(validation.reconciliation.tracks)
                 (out / f"{midi_path.stem}.reconciliation.json").write_text(
@@ -269,7 +283,7 @@ class Orchestrator:
             # Admit original channel evidence before any transform/cache lookup
             # can replace it. Expressive MIDI is independently checked below.
             prepare_stem_render(midi_path, config=self.config, analysis=analysis_doc,
-                                score=context.score if context else None)
+                                score=context.score if isinstance(context, AudioPackageContext) else None)
 
         if stages.get("expressivization", True):
             groove_spec = self._load_groove_spec()
@@ -290,7 +304,7 @@ class Orchestrator:
 
         if stages.get("render", True):
             plan = prepare_stem_render(expressive_midi, config=self.config, analysis=analysis_doc,
-                                       score=context.score if context else None)
+                                       score=context.score if isinstance(context, AudioPackageContext) else None)
             effective = deepcopy(plan.config)
             effective.pop('source_path', None)
             effective['paths'] = {k: v for k, v in effective.get('paths', {}).items()

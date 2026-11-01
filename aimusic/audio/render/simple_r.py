@@ -43,29 +43,33 @@ def render_stem(
     sr = int(cfg.get("render", {}).get("sample_rate", sample_rate))
     peak_dbfs = _peak_dbfs(cfg)
 
-    midi = pm.PrettyMIDI(str(path))
-    instruments = midi.instruments
-    if instrument_index is not None:
-        instruments = [midi.instruments[instrument_index]]
+    source = MidiEvents.load(path)
+    if instrument_index is None:
+        # All SMF tracks share this tempo map. PrettyMIDI ignores conductor
+        # changes outside track zero, so it cannot time general imported files.
+        notes = [(note.pitch, note.velocity, float(source.tempo_map.seconds(note.start)),
+                  float(source.tempo_map.seconds(note.end))) for note in source.notes]
+    else:
+        # Preserve the legacy PrettyMIDI instrument-index API, not used by stems.
+        instrument = pm.PrettyMIDI(str(path)).instruments[instrument_index]
+        notes = [(note.pitch, note.velocity, note.start, note.end) for note in instrument.notes]
 
     if duration_sec is None:
-        source = MidiEvents.load(path)
         duration_sec = float(source.tempo_map.seconds(max(e.tick for e in source.events)))
     n = render_frames(sr, duration_sec, release_tail_sec)
     audio = np.zeros(n, dtype=np.float64)
-    for inst in instruments:
-        for note in inst.notes:
-            f0 = 440.0 * (2.0 ** ((note.pitch - 69) / 12.0))
-            i0 = int(note.start * sr)
-            i1 = int(note.end * sr)
-            if i1 <= i0:
-                i1 = i0 + 1
-            i1 = min(i1, n)
-            i0 = max(0, min(i0, n - 1))
-            t = np.arange(i1 - i0) / sr
-            amp = note.velocity / 127.0 * 0.2
-            env = np.linspace(1.0, 0.2, i1 - i0)
-            audio[i0:i1] += amp * env * np.sin(2 * np.pi * f0 * t)
+    for pitch, velocity, start, end in notes:
+        f0 = 440.0 * (2.0 ** ((pitch - 69) / 12.0))
+        i0 = int(start * sr)
+        i1 = int(end * sr)
+        if i1 <= i0:
+            i1 = i0 + 1
+        i1 = min(i1, n)
+        i0 = max(0, min(i0, n - 1))
+        t = np.arange(i1 - i0) / sr
+        amp = velocity / 127.0 * 0.2
+        env = np.linspace(1.0, 0.2, i1 - i0)
+        audio[i0:i1] += amp * env * np.sin(2 * np.pi * f0 * t)
 
     audio = peak_normalize(as_mono(audio), peak_dbfs)
     if output_path is None:

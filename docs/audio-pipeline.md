@@ -90,6 +90,7 @@ so DSP never blocks on symbolic changes. The contract is the decoupler.
 
 ## Related docs
 
+- [audio-imported-midi.md](audio-imported-midi.md) — validation-first MIDI/package CLI and preview evidence
 - [audio-stems.md](audio-stems.md) — logical stems, safe filenames and role index
 - [render-package-contract.md](render-package-contract.md)
 - [audio-roadmap.md](audio-roadmap.md) — M0–M6 quarter plan

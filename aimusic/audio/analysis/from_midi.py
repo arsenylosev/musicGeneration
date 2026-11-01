@@ -17,13 +17,18 @@ _NAME_ROLES = ("drums", "bass", "lead", "comp", "pads", "ornament", "piano")
 
 
 def _infer_role(instrument: pm.Instrument) -> str:
-    name = (instrument.name or "").strip().lower()
+    return infer_role(instrument.name, instrument.program, instrument.is_drum)
+
+
+def infer_role(name: str, program: int, is_drum: bool) -> str:
+    """Pure name/program heuristic; imported evidence is never planner authority."""
+    name = (name or "").strip().lower()
     for role in _NAME_ROLES:
         if role in name:
             return "comping" if role == "comp" else role
-    if instrument.is_drum:
+    if is_drum:
         return "drums"
-    prog = int(instrument.program)
+    prog = int(program)
     if prog <= 7:
         return "piano"
     if 32 <= prog <= 39:

@@ -107,8 +107,8 @@ Suggested message: `feat(audio): expose safe MIDI demo workflows and listening e
 
 Files: `aimusic/app/cli.py` lazy dispatch, `audio/entry.py`, inferred-input adapter, CLI safety tests, example generators and reproduction docs. Keep changes inside the audio boundary except lazy CLI glue.
 
-- [ ] 10.1 Add audio-owned imported-MIDI context with provenance, tempo/meter maps, programs and tuning evidence; verify type-0/type-1 fixtures render without pretending to have planner reconciliation, while malformed/type-2/unsupported arrangements fail clearly and leave sources unchanged.
-- [ ] 10.2 Add lazy `render-midi`, output/SoundFont options and named profiles to both entry paths while preserving validate-only defaults; verify `tests/test_audio_entry.py` and new CLI tests exercise help, successful explicit rendering, missing dependencies, invalid inputs, safe outputs and core-only imports.
+- [x] 10.1 Add audio-owned imported-MIDI context with provenance, tempo/meter maps, programs and tuning evidence; verify type-0/type-1 fixtures render without pretending to have planner reconciliation, while malformed/type-2/unsupported arrangements fail clearly and leave sources unchanged.
+- [x] 10.2 Add lazy `render-midi`, output/SoundFont options and named profiles to both entry paths while preserving validate-only defaults; verify `tests/test_audio_entry.py` and new CLI tests exercise help, successful explicit rendering, missing dependencies, invalid inputs, safe outputs and core-only imports.
 - [ ] 10.3 Add reproducible source generators/commands for the eight-bar fixture, fresh seeded 12-EDO passage, 19-EDO reference tones and short 19-EDO multitrack passage; verify each produces source/expressive MIDI as applicable, stems/mix, config/asset/backend provenance and applicable reconciliation/tuning reports.
 - [ ] 10.4 Document executable local commands, seed/runtime/asset requirements and listening checklist; verify example sources/profiles/expected metrics are versioned while WAVs/SoundFonts/credentials are not, then commit C9 with CLI and packaging smoke tests passing.
 
