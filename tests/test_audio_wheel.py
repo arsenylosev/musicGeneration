@@ -83,3 +83,34 @@ class TestAudioWheel(unittest.TestCase):
                 ))
                 print('installed wheel profiles OK')
                 """), str(installed), str(REPO_ROOT))
+            # Exercise the installed module command and real preview CLI with
+            # host audio dependencies, still without checkout/editable aimusic.
+            run("-I", "-c", textwrap.dedent("""\
+                import os
+                import runpy
+                import sys
+                from pathlib import Path
+                installed, checkout = map(Path, sys.argv[1:])
+                sys.path.insert(0, str(installed))
+                assert 'PYTHONPATH' not in os.environ
+                assert all(not Path(p).resolve().is_relative_to(checkout) for p in sys.path)
+                import aimusic
+                assert Path(aimusic.__file__).is_relative_to(installed)
+                os.environ['AIMUSIC_AUDIO_BACKEND'] = 'native'
+                os.environ.pop('AIMUSIC_SOUNDFONT', None)
+                for name in ('fixture-12', 'reference-19', 'multitrack-19'):
+                    sys.argv = ['demo_sources', name, '--out', name]
+                    runpy.run_module('aimusic.audio.demo_sources', run_name='__main__')
+                    assert Path(name, 'source.mid').is_file()
+                    assert Path(name, 'expected.json').is_file()
+                sys.argv = ['aimusic', 'render-midi', 'fixture-12/source.mid',
+                            '--profile', 'preview', '--out', 'preview', '--no-validate-only']
+                try:
+                    runpy.run_module('aimusic.app.cli', run_name='__main__')
+                except SystemExit as exc:
+                    assert exc.code == 0
+                import soundfile
+                pcm, rate = soundfile.read('preview/stems/rough_mix.wav')
+                assert rate == 48000 and len(pcm) == 780000
+                print('installed demo generator and preview OK')
+                """), str(installed), str(REPO_ROOT))

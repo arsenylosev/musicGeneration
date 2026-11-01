@@ -112,6 +112,16 @@ Files: `aimusic/app/cli.py` lazy dispatch, `audio/entry.py`, inferred-input adap
 - [ ] 10.3 Add reproducible source generators/commands for the eight-bar fixture, fresh seeded 12-EDO passage, 19-EDO reference tones and short 19-EDO multitrack passage; verify each produces source/expressive MIDI as applicable, stems/mix, config/asset/backend provenance and applicable reconciliation/tuning reports.
 - [ ] 10.4 Document executable local commands, seed/runtime/asset requirements and listening checklist; verify example sources/profiles/expected metrics are versioned while WAVs/SoundFonts/credentials are not, then commit C9 with CLI and packaging smoke tests passing.
 
+Asset-free continuation (2026-11-02): `aimusic/audio/demo_sources.py` and
+`docs/audio-demo-sources.md` provide three versioned fixture generators plus the
+existing seeded Method A command, exactly the four requested sources. Tests
+exercise byte repeats, independent Hz/windows, expressive event integrity,
+exclusive output publication, real 12-EDO preview stems/mixes and installed-wheel
+commands. **10.3 and 10.4 remain open**: no approved SoundFont/native lane,
+verified production `channel_pitch` capability, four-example native artifacts,
+controlled native tuning reports or human listening evidence. This is not C9
+native acceptance, and no other checkbox or Linear status is changed.
+
 ## 11. Final cross-lane verification — commit C10 / review gate D
 
 Suggested message: `test(audio): record audible demo acceptance and reproducibility`

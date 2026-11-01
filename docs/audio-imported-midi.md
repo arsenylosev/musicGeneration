@@ -1,5 +1,8 @@
 # Imported MIDI rendering
 
+For the versioned four-source reproduction recipe and current native blockers,
+see [listening demo sources](audio-demo-sources.md).
+
 `render-midi` accepts local type-0/type-1 PPQN MIDI without inventing a Score or
 planner metadata. Both audio commands **validate only by default**; use
 `--no-validate-only` to create audio. Install Python dependencies with
