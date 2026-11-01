@@ -39,6 +39,12 @@ def _event_modes(midi: MidiEvents, *, drums: bool) -> set[str]:
             continue
         control, value = msg.control, msg.value
         selected = selectors[channel]
+        if control == 121:
+            # Reset selection, not registered parameter values or prior evidence.
+            for number in selected:
+                selected[number] = 127
+            nrpn[channel] = False
+            continue
         if control in (98, 99, 100, 101):
             selected[control] = value
             nrpn[channel] = control in (98, 99)

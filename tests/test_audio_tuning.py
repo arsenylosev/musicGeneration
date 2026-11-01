@@ -74,6 +74,44 @@ class TestRequiredTuning(unittest.TestCase):
                  cc(6, 2, channel=2), cc(38, 0, channel=2)]
         self.assertEqual(required_tuning(events(*setup), {}), 'direct_12')
 
+    def test_reset_all_controllers_nulls_rpn_and_nrpn_data_targets(self):
+        for selection in ([cc(101, 0), cc(100, 0)], [cc(99, 0), cc(98, 0)]):
+            for control, value in ((6, 48), (38, 50), (96, 0), (97, 0)):
+                with self.subTest(selection=selection, control=control):
+                    self.assertEqual(required_tuning(events(
+                        *selection, cc(121, 0), cc(control, value)), {}), 'direct_12')
+
+    def test_reset_clears_both_selector_halves_including_inactive_family(self):
+        # Leave both families selected before resetting; selecting either family
+        # afterwards must not recover the other byte from before CC121.
+        selection = [cc(101, 0), cc(100, 0), cc(99, 0), cc(98, 0)]
+        for control in (101, 100, 99, 98):
+            for value, expected in ((0, 'unsupported'), (127, 'direct_12')):
+                with self.subTest(control=control, value=value):
+                    self.assertEqual(required_tuning(events(
+                        *selection, cc(121, 0), cc(control, value), cc(6, 2)), {}), expected)
+
+    def test_reset_parameter_selection_is_channel_local(self):
+        for other, expected in (([cc(101, 0, 1), cc(100, 0, 1)], 'channel_pitch'),
+                                ([cc(99, 0, 1), cc(98, 0, 1)], 'unsupported')):
+            with self.subTest(other=other):
+                self.assertEqual(required_tuning(events(
+                    cc(101, 0), cc(100, 0), *other, cc(121, 0),
+                    cc(6, 48), cc(6, 48, 1)), {}), expected)
+
+    def test_reset_keeps_accumulated_requirements_after_reselection(self):
+        for setup, expected in ((rpn(0, 48, 50), 'channel_pitch'),
+                                (rpn(1, 65, 1), 'channel_pitch'),
+                                (rpn(2, 65), 'channel_pitch'),
+                                (rpn(6, 4), 'mpe'),
+                                ([cc(99, 0), cc(98, 0), cc(6, 1)], 'unsupported'),
+                                ([mido.Message('pitchwheel', pitch=1)], 'channel_pitch')):
+            with self.subTest(setup=setup):
+                # Reselect explicitly after reset. A partial write is not a
+                # new default tuning or permission to erase prior evidence.
+                self.assertEqual(required_tuning(events(
+                    *setup, cc(121, 0), cc(101, 0), cc(100, 0), cc(6, 2)), {}), expected)
+
     def test_relative_parameter_changes_are_not_assumed_neutral(self):
         for control in (96, 97):
             with self.subTest(control=control):
