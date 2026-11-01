@@ -6,7 +6,9 @@ ports and ambiguous note/channel ownership are deliberately unsupported.
 """
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass, replace
+from heapq import heappop, heappush
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -109,7 +111,7 @@ class MidiEvents:
     def load(cls, path: Path | str) -> MidiEvents:
         try:
             midi = mido.MidiFile(str(path))
-        except (OSError, EOFError, ValueError, KeyError) as exc:
+        except (OSError, EOFError, ValueError, KeyError, IndexError) as exc:
             raise MidiEventError(f'Malformed MIDI {path}: {exc}') from exc
         return cls.from_mido(midi)
 
@@ -252,7 +254,10 @@ def _update(state: State, msg: Any) -> None:
                                             'program_change': 'program'}[msg.type])
         if msg.type == 'program_change':
             for number in (0, 32):
-                state[('bank', number)] = state.get(('cc', number), 0)
+                if ('cc', number) in state:
+                    state[('bank', number)] = state[('cc', number)]
+                else:
+                    state.pop(('bank', number), None)
     elif msg.type == 'polytouch':
         state[('poly', msg.note)] = msg.value
     elif msg.type == 'control_change':
@@ -267,34 +272,56 @@ def _update(state: State, msg: Any) -> None:
             parameter = state.get(('cc', msb), 127) * 128 + state.get(('cc', lsb), 127)
             if parameter != 16383:
                 key = ('nrpn' if nrpn else 'rpn', parameter)
-                old = state.get(key, 0)
-                state[key] = value * 128 + old % 128 if cc == 6 else old // 128 * 128 + value
-                if key == ('rpn', 6) and state[key] != 0:
+                old = state.get(key)
+                if old is None and ('opaque', 0) in state:
+                    # Neither half of a parameter is known after an opaque reset.
+                    state[(key[0] + ('_msb' if cc == 6 else '_lsb'), parameter)] = value
+                    high = state.get((key[0] + '_msb', parameter))
+                    low = state.get((key[0] + '_lsb', parameter))
+                    if high is not None and low is not None:
+                        state[key] = high * 128 + low
+                else:
+                    old = old or 0
+                    state[key] = value * 128 + old % 128 if cc == 6 else old // 128 * 128 + value
+                if key == ('rpn', 6) and state.get(key, value) != 0:
                     raise ChannelStateConflict('MPE master-zone interpretation is unsupported in retiming; use per-channel expression')
         else:
             state[('cc', cc)] = value
+
+
+def _event_state(channels: dict[int, State], event: MidiEvent) -> State:
+    if event.message.type == 'sysex':
+        # Payloads (including MTS and reset messages) are opaque. No channel's
+        # defaults or earlier state remain authoritative after this boundary.
+        channels.update({channel: {('opaque', 0): 1} for channel in range(16)})
+    return channels.setdefault(event.channel, dict(_DEFAULTS)) if event.channel is not None else {}
 
 
 def _snapshots(events: tuple[MidiEvent, ...]) -> list[State]:
     channels: dict[int, State] = {}
     result = []
     for e in events:
-        state = channels.setdefault(e.channel, dict(_DEFAULTS)) if e.channel is not None else {}
+        state = _event_state(channels, e)
         _update(state, e.message)
         result.append(dict(state))
     return result
 
 
-def _protected(state: State, pitch: int) -> State:
+def _protected(state: State, pitch: int, ordinary: bool = False) -> State:
     """Persistent CC automation stays on its timeline; pitch/expression cannot drift."""
     result = {k: v for k, v in state.items()
             if k[0] in ('pitchwheel', 'aftertouch', 'program_change', 'bank', 'rpn', 'nrpn')
-            or k in (('cc', 74), ('poly', pitch))}
+            or k in (('cc', 74), ('poly', pitch))
+            or (ordinary and k[0] == 'cc' and k[1] not in (*_PARAMETER_CCS, 0, 32))}
     result.setdefault(('poly', pitch), 0)
     return result
 
 
 def _replay(current: State, wanted: State, channel: int) -> list[Any]:
+    if ('opaque', 0) in current or ('opaque', 0) in wanted:
+        if current != wanted:
+            raise ChannelStateConflict('Cannot replay unknown channel state after opaque SysEx')
+        return []
     result = []
 
     def cc(number: int, value: int) -> None:
@@ -426,19 +453,17 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
             moved[i] = replace(e, tick=max(e.tick, max(x.tick for x in moved if x.track == e.track)))
     moved = _order_boundaries(source, moved)
     moved_by_id = {(e.track, e.order): e for e in moved}
-    for sysex in (e for e in source.events if e.message.type == 'sysex'):
-        new_sysex = moved_by_id[(sysex.track, sysex.order)]
-        for n in source.notes:
-            for index in (n.on, n.off):
-                old = source.events[index]
-                new = moved_by_id[(old.track, old.order)]
-                if (old.key < sysex.key) != (new.key < new_sysex.key):
-                    raise _conflict(n, 'opaque SysEx boundary crossing')
+    sysex_keys = [e.key for e in source.events if e.message.type == 'sysex']
+    new_sysex_keys = sorted(e.key for e in moved if e.message.type == 'sysex')
+    for old, new in zip(source.events, moved):
+        if old.channel is not None and bisect_left(sysex_keys, old.key) != bisect_left(new_sysex_keys, new.key):
+            raise ChannelStateConflict(f'track {old.track}, channel {old.channel}: opaque SysEx boundary crossing')
     channels: dict[int, State] = {}
     replayed: list[MidiEvent] = []
     replay_order = min(e.order for e in source.events) - 1
+    sounding: dict[int, list[int]] = {}
     for e in sorted(moved, key=lambda e: e.key):
-        state = channels.setdefault(e.channel, dict(_DEFAULTS)) if e.channel is not None else {}
+        state = _event_state(channels, e)
         if e.message.type == 'note_on' and e.message.velocity:
             n = source.notes[e.note_ids[0]]
             wanted = dict(original_states[n.on])
@@ -449,6 +474,13 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
                         or (key[0] == 'poly' and key[1] != n.pitch)):
                     wanted[key] = value
             setup = _replay(state, wanted, n.channel)
+            releases = sounding.setdefault(n.channel, [])
+            while releases and releases[0] <= e.tick:
+                heappop(releases)
+            if releases and any(m.type == 'control_change' and m.control not in (*_PARAMETER_CCS, 0, 32, 74)
+                                for m in setup):
+                raise _conflict(n, 'ordinary controller/sustain state replay over another sounding voice')
+            heappush(releases, n.sounding_end if n.sounding_end > n.end else targets[n.id].end)
             for j, msg in enumerate(setup):
                 anchor = e.sort_order if e.sort_order is not None else Fraction(e.order)
                 replayed.append(MidiEvent(e.tick, e.track, replay_order,
@@ -480,8 +512,9 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
     candidate = replace(candidate, notes=tuple(notes))
     actual_states = _snapshots(candidate.events)
     for n, new_note in zip(source.notes, candidate.notes):
-        expected = _protected(original_states[n.on], n.pitch)
-        if _protected(actual_states[new_note.on], n.pitch) != expected:
+        ordinary = (n.start, n.end) == (new_note.start, new_note.end)
+        expected = _protected(original_states[n.on], n.pitch, ordinary)
+        if _protected(actual_states[new_note.on], n.pitch, ordinary) != expected:
             raise _conflict(n, 'initial pitch/expression state changed')
         changes = []
         previous = expected
@@ -491,7 +524,7 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
                 break
             if e.channel != n.channel:
                 continue
-            current = _protected(original_states[i], n.pitch)
+            current = _protected(original_states[i], n.pitch, ordinary)
             delta = {k: v for k, v in current.items() if previous.get(k, 0) != v}
             if delta:
                 at = moved_by_id[(e.track, e.order)].tick
@@ -509,7 +542,7 @@ def retime(source: MidiEvents, timings: dict[int, NoteTiming]) -> MidiEvents:
             while change_index < len(changes) and changes[change_index][0] <= tick:
                 expected.update(changes[change_index][2]); change_index += 1
             last = max(i for i, e in enumerate(candidate.events) if e.channel == n.channel and e.tick == tick)
-            actual = _protected(actual_states[last], n.pitch)
+            actual = _protected(actual_states[last], n.pitch, ordinary)
             if any(actual.get(k, 0) != expected.get(k, 0) for k in actual.keys() | expected.keys()):
                 raise _conflict(n, f'incompatible simultaneous pitch/expression state at tick {tick}')
     return candidate
@@ -532,11 +565,17 @@ def add_ghosts(source: MidiEvents, ghosts: list[tuple[int, NoteTiming]]) -> Midi
         if any(timing.start < e.tick < timing.end and
                (e.channel == note.channel or e.message.type == 'sysex') for e in result.events):
             raise _conflict(note, 'ghost crosses channel state automation')
+        sysex_keys = [e.key for e in source.events if e.message.type == 'sysex']
+        if bisect_left(sysex_keys, source.events[note.on].key) != bisect_left(sysex_keys, (timing.start, note.track, Fraction(10**20))):
+            raise _conflict(note, 'ghost crosses opaque SysEx boundary')
         snapshots = _snapshots(result.events)
         current = dict(_DEFAULTS)
         for e, state in zip(result.events, snapshots):
-            if e.tick <= timing.start and e.channel == note.channel:
-                current = state
+            if e.tick <= timing.start:
+                if e.message.type == 'sysex':
+                    current = {('opaque', 0): 1}
+                elif e.channel == note.channel:
+                    current = state
         wanted = _snapshots(source.events)[note.on]
         events = list(result.events)
         order = max(e.order for e in events) + 1

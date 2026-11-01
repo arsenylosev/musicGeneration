@@ -499,3 +499,144 @@ class TestRetiming(unittest.TestCase):
                 active = pending
             if msg.type == 'note_on' and msg.velocity:
                 self.assertEqual(active, 1)
+
+
+class TestReviewRegressions(unittest.TestCase):
+    retime = TestRetiming.retime
+
+    def test_sysex_repro_expression_crosses_but_note_endpoints_do_not(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        midi = channel_fixture(
+            (100, message('note_on', note=60)),
+            (250, mido.Message('sysex', data=(0x7e, 0x7f, 9, 1))),
+            (300, message('pitchwheel', pitch=400)),
+            (500, message('note_off', note=60)))
+        with self.assertRaisesRegex(ChannelStateConflict, 'SysEx'):
+            self.retime(midi, [(100, 300)])
+
+    def test_sysex_repro_pre_reset_program_must_not_be_replayed(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        midi = channel_fixture(
+            (0, message('program_change', program=81)),
+            (100, mido.Message('sysex', data=(0x7e, 0x7f, 9, 1))),
+            (150, message('note_on', note=60)),
+            (200, message('note_off', note=60)),
+            (250, message('program_change', program=80)))
+        with self.assertRaisesRegex(ChannelStateConflict, 'SysEx|unknown'):
+            self.retime(midi, [(300, 350)])
+
+    def test_ghost_cannot_copy_tuning_across_mts_even_without_replay(self):
+        from aimusic.audio.midi_events import MidiEvents, NoteTiming, add_ghosts, ChannelStateConflict
+        mts = mido.Message('sysex', data=(0x7f, 0x7f, 8, 2, 0, 1, 60, 61, 0, 0))
+        midi = channel_fixture(
+            (100, message('note_on', note=60)),
+            (150, message('note_off', note=60)),
+            (200, mts))
+        with self.assertRaisesRegex(ChannelStateConflict, 'SysEx|unknown'):
+            add_ghosts(MidiEvents.from_mido(midi), [(0, NoteTiming(250, 280, 40))])
+
+    def test_ordinary_controller_replay_cannot_change_an_unchanged_voice(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        for cc in (7, 10, 11):
+            with self.subTest(cc=cc):
+                midi = channel_fixture(
+                    (100, message('note_on', note=60)),
+                    (300, message('control_change', control=cc, value=40)),
+                    (400, message('note_on', note=64)),
+                    (500, message('note_off', note=64)),
+                    (600, message('note_off', note=60)))
+                with self.assertRaisesRegex(ChannelStateConflict, 'controller|CC|state'):
+                    self.retime(midi, [(100, 600), (200, 250)])
+
+    def test_cc74_exact_association_retiming_and_shared_conflict(self):
+        from aimusic.audio.midi_events import MidiEvents, ChannelStateConflict
+        midi = channel_fixture(
+            (100, message('control_change', control=74, value=12)),
+            (100, message('note_on', note=60)),
+            (100, message('note_on', note=64)),
+            (200, message('control_change', control=74, value=90)),
+            (300, message('note_off', note=60)),
+            (300, message('note_off', note=64)),
+            (300, message('control_change', control=74, value=0)))
+        src = MidiEvents.from_mido(midi)
+        self.assertEqual([(e.tick, e.note_ids) for e in src.events if e.message.type == 'control_change'],
+                         [(100, (0, 1)), (200, (0, 1)), (300, (0, 1))])
+        _, out = self.retime(midi, [(150, 450), (150, 450)])
+        self.assertEqual([(e.tick, e.message.value, e.note_ids) for e in out.events
+                          if e.message.type == 'control_change' and e.message.control == 74],
+                         [(150, 12, (0, 1)), (300, 90, (0, 1)), (450, 0, (0, 1))])
+        with self.assertRaisesRegex(ChannelStateConflict, 'shared'):
+            self.retime(midi, [(150, 450), (175, 475)])
+
+    def test_rpn_pitch_reconstruction_includes_cents_fine_and_coarse_tuning(self):
+        events = []
+        for parameter, msb, lsb in ((0, 12, 50), (1, 80, 32), (2, 67, 0)):
+            events.extend((100, message('control_change', control=cc, value=value))
+                          for cc, value in ((101, 0), (100, parameter), (6, msb), (38, lsb)))
+        events += [(150, message('pitchwheel', pitch=2048)),
+                   (150, message('note_on', note=60)),
+                   (250, message('pitchwheel', pitch=-1024)),
+                   (350, message('note_off', note=60))]
+        _, out = self.retime(channel_fixture(*events), [(50, 250)])
+        # Independent MIDI decoder: no transform snapshots or helpers.
+        selector = [127, 127]
+        values = {0: [2, 0], 1: [64, 0], 2: [64, 0]}
+        bend, sounding, observed = 0, False, []
+        for event in out.events:
+            msg = event.message
+            if msg.type == 'control_change':
+                if msg.control in (101, 100):
+                    selector[msg.control == 100] = msg.value
+                if msg.control in (6, 38) and selector[0] == 0 and selector[1] in values:
+                    values[selector[1]][msg.control == 38] = msg.value
+            if msg.type == 'pitchwheel':
+                bend = msg.pitch
+            if msg.type == 'note_on':
+                sounding = True
+            if msg.type == 'note_off':
+                sounding = False
+            if sounding and msg.type in ('note_on', 'pitchwheel'):
+                span = values[0][0] + Fraction(values[0][1], 100)
+                fine = Fraction(values[1][0] * 128 + values[1][1] - 8192, 8192)
+                observed.append((event.tick, 60 + values[2][0] - 64 + fine + Fraction(bend, 8192) * span))
+        self.assertEqual(observed, [(50, Fraction(60 + 3) + Fraction(2080, 8192) + Fraction(25, 8)),
+                                    (150, Fraction(60 + 3) + Fraction(2080, 8192) - Fraction(25, 16))])
+
+    def test_short_recognized_meta_payload_has_source_diagnostic(self):
+        import tempfile
+        from pathlib import Path
+        from aimusic.audio.midi_events import MidiEvents, MidiEventError
+        for kind in (0x51, 0x58, 0x59):
+            with self.subTest(meta=kind), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / 'short-meta.mid'
+                body = bytes((0, 0xff, kind, 0, 0, 0xff, 0x2f, 0))
+                path.write_bytes(b'MThd\x00\x00\x00\x06\x00\x00\x00\x01\x01\xe0MTrk'
+                                 + len(body).to_bytes(4, 'big') + body)
+                with self.assertRaisesRegex(MidiEventError, 'Malformed MIDI.*short-meta.mid'):
+                    MidiEvents.load(path)
+
+    def test_opaque_snapshot_forgets_defaults_and_pre_reset_state(self):
+        from aimusic.audio.midi_events import MidiEvents, _snapshots
+        midi = channel_fixture(
+            (0, message('program_change', program=81)),
+            (100, mido.Message('sysex', data=(0x7e, 0x7f, 9, 1))),
+            (150, message('note_on', note=60)),
+            (200, message('note_off', note=60)))
+        source, out = self.retime(midi, [(160, 210)])
+        state = _snapshots(source.events)[source.notes[0].on]
+        self.assertNotIn(('program_change', 0), state)
+        self.assertNotIn(('rpn', 0), state)
+        self.assertNotIn(('cc', 7), state)
+        self.assertFalse(any(e.order < 0 for e in out.events))
+        self.assertEqual(len(MidiEvents.from_mido(out.to_mido()).notes), 1)
+
+    def test_ordinary_replay_must_not_leak_into_later_unchanged_voice(self):
+        from aimusic.audio.midi_events import ChannelStateConflict
+        midi = channel_fixture(
+            (150, message('note_on', note=60)),
+            (250, message('note_off', note=60)),
+            (300, message('control_change', control=7, value=40)),
+            (400, message('note_on', note=64)),
+            (450, message('note_off', note=64)))
+        with self.assertRaisesRegex(ChannelStateConflict, 'state'):
+            self.retime(midi, [(150, 250), (50, 100)])

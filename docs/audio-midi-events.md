@@ -48,7 +48,8 @@ preserved unless a retimed event requires extending its track.
   only when every affected voice maps it to the same destination tick.
 - Ordinary persistent controllers keep their original timeline. An earlier note
   may need additive initial-state replay. Later notes do not rewind volume/pan/
-  sustain automation. Program/bank and pitch/expression state are reconstructed
+  sustain automation. Replay that changes another sounding voice is rejected;
+  unchanged voices also retain ordinary-controller trajectories. Program/bank and pitch/expression state are reconstructed
   for each intended voice. Bank selects latch on program change; replay also
   preserves pending bank selects for later source programs. RPN replay is an
   ordered select/data transaction;
@@ -73,8 +74,11 @@ CC74 and pressure. Tests reconstruct sequential and overlapping-channel 19-EDO
 notes independently of the transform, including a generated fractional-base,
 48-semitone-range fixture, within **one cent** of intended pitches.
 
-Opaque SysEx is preserved, not interpreted. Crossing an opaque SysEx boundary
-(including same-tick event order) is rejected. Preserving MTS bytes does **not**
+Opaque SysEx is preserved, not interpreted. Every moved channel event, not just
+note endpoints, is checked against opaque SysEx boundaries (including same-tick
+order). SysEx invalidates channel snapshots: defaults/pre-reset values are no
+longer known. Retiming within a region may proceed without replay, but replay
+requiring unknown state fails closed. Ghosts cannot copy state across MTS/SysEx. Preserving MTS bytes does **not**
 prove MTS rendering capability. Active MPE master-zone interpretation, alternate
 hold pedals/channel-mode resets, device-dependent relative parameter increment/
 decrement and replay of unknown/device-specific RPN/NRPN parameters are not
@@ -91,7 +95,12 @@ track 1, channel 2, note 60 (id 0): incompatible simultaneous pitch/expression s
 
 Retry a **valid original** with groove disabled/light cleanup; malformed input
 must first be repaired. Failures occur before MIDI/diff/manifest publication.
-The output cannot alias the input, including through a hard link. These checks
+MIDI and both sidecars are preflighted for resolved-path/inode aliases to the
+source and each other. All three are serialized and staged before publication;
+leaf entries are atomically replaced, never opened for writing through a link.
+Publication errors roll back existing artifacts. This is per-file atomicity, not
+a crash-atomic multi-file transaction; concurrent writers to one bundle are not
+supported. These checks
 certify MIDI-event fidelity only, not audible f0, instrument quality, CLAP or FAD.
 Stem isolation and renderer capability enforcement are separate later tasks.
 

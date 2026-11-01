@@ -13,7 +13,8 @@ import mido
 import pretty_midi as pm
 
 from aimusic.audio.groove.spec import GrooveSpec, parse_groove_spec
-from aimusic.audio.manifest import write_manifest
+from aimusic.audio.manifest import StageManifest, content_hash_files
+from aimusic.audio.groove.publication import publish_bundle
 from aimusic.audio.midi_events import MidiEvents, NoteTiming, add_ghosts, rational, retime
 
 # Fixed seed for deterministic jitter when jitter_sd is set.
@@ -128,8 +129,10 @@ def _apply_to_events(
         start_seconds = tempo.seconds(note.start)
         offset = Fraction(0)
         if depth and spec.swing is not None and role in (spec.swing.applies_to or []):
-            swing_beats = _swing_offset_sec(beat, 1.0, spec.swing.ratio, spec.swing.subdivision)
-            offset += tempo.seconds(Fraction(note.start) + rational(swing_beats) * midi.ticks_per_beat) - start_seconds
+            pair_ticks = Fraction(midi.ticks_per_beat * 8, spec.swing.subdivision)
+            if note.start % pair_ticks >= pair_ticks / 2:
+                swing_ticks = (rational(spec.swing.ratio) - Fraction(1, 2)) * pair_ticks
+                offset += tempo.seconds(note.start + swing_ticks) - start_seconds
         if depth:
             offset += rational(_microtiming_ms_for_role(role, beat, 1.0, spec.microtiming_ms, counter)) / 1000
         if depth and spec.anticipation is not None:
@@ -227,18 +230,13 @@ def apply_groove(
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if output_path.resolve() == path.resolve() or (output_path.exists() and output_path.samefile(path)):
-        raise ValueError("Groove output must not overwrite the source MIDI")
-    out_midi.save(output_path)
     report_path = Path(str(output_path) + ".diff.json")
-    report_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
-
     code_version = str(cfg.get("code_version", "0.1.0"))
-    write_manifest(
-        "expressivization",
-        output_path,
-        [path],
-        config_subset={"groove": validated.model_dump(mode="json"), "light_cleanup": light_cleanup},
+    subset = {"groove": validated.model_dump(mode="json"), "light_cleanup": light_cleanup}
+    manifest = StageManifest(
+        stage="expressivization",
+        inputs_hash=content_hash_files([path], json.dumps(subset, sort_keys=True), code_version),
+        config_subset=subset,
         metadata={
             "notes_in": report["notes_in"],
             "notes_out": report["notes_out"],
@@ -247,5 +245,13 @@ def apply_groove(
             "diff_report": str(report_path),
         },
         code_version=code_version,
+        output_path=str(output_path),
     )
+    buffer = io.BytesIO()
+    out_midi.to_mido().save(file=buffer)
+    publish_bundle(path, output_path, {
+        "": buffer.getvalue(),
+        ".diff.json": json.dumps(report, indent=2, sort_keys=True).encode("utf-8"),
+        ".json": json.dumps(manifest.to_dict(), indent=2, sort_keys=True).encode("utf-8"),
+    })
     return output_path

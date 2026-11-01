@@ -264,5 +264,129 @@ class TestEventGroove(unittest.TestCase):
             self.assertLessEqual(abs(expected - actual) * 100, 1)
 
 
+@unittest.skipUnless(_audio_spine_available(), "requires audio extras")
+class TestReviewPublication(unittest.TestCase):
+    def test_all_output_aliases_rejected_before_any_publication(self):
+        from aimusic.audio.groove.apply import apply_groove
+        from tests.test_audio_midi_events import fixture
+        for suffix in ('', '.diff.json', '.json'):
+            for link in ('symlink_to', 'hardlink_to'):
+                with self.subTest(suffix=suffix, link=link), tempfile.TemporaryDirectory() as tmp:
+                    source, out = Path(tmp) / 'source.mid', Path(tmp) / 'out.mid'
+                    fixture().save(source)
+                    original = source.read_bytes()
+                    destinations = [Path(str(out) + ext) for ext in ('', '.diff.json', '.json')]
+                    for destination in destinations:
+                        if destination == Path(str(out) + suffix):
+                            getattr(destination, link)(source)
+                        else:
+                            destination.write_bytes(b'previous artifact')
+                    before = [p.read_bytes() for p in destinations]
+                    with self.assertRaisesRegex(ValueError, 'source|input'):
+                        apply_groove(source, {}, output_path=out)
+                    self.assertEqual(source.read_bytes(), original)
+                    self.assertEqual([p.read_bytes() for p in destinations], before)
+
+    def test_destinations_must_not_alias_each_other(self):
+        from aimusic.audio.groove.apply import apply_groove
+        from tests.test_audio_midi_events import fixture
+        with tempfile.TemporaryDirectory() as tmp:
+            source, out = Path(tmp) / 'source.mid', Path(tmp) / 'out.mid'
+            fixture().save(source)
+            out.write_bytes(b'old midi')
+            Path(str(out) + '.json').hardlink_to(out)
+            with self.assertRaisesRegex(ValueError, 'alias'):
+                apply_groove(source, {}, output_path=out)
+            self.assertEqual(out.read_bytes(), b'old midi')
+
+    def test_serialization_failure_does_not_publish_midi_or_sidecars(self):
+        from unittest.mock import patch
+        from aimusic.audio.groove.apply import apply_groove
+        from tests.test_audio_midi_events import fixture
+        with tempfile.TemporaryDirectory() as tmp:
+            source, out = Path(tmp) / 'source.mid', Path(tmp) / 'out.mid'
+            fixture().save(source)
+            original = source.read_bytes()
+            with patch('aimusic.audio.groove.apply.json.dumps', side_effect=OSError('serialize failed')):
+                with self.assertRaisesRegex(OSError, 'serialize failed'):
+                    apply_groove(source, {}, output_path=out)
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(list(Path(tmp).iterdir()), [source])
+
+    def test_publication_failure_rolls_back_existing_bundle(self):
+        import os
+        from unittest.mock import patch
+        from aimusic.audio.groove.apply import apply_groove
+        from tests.test_audio_midi_events import fixture
+        for existing in (False, True):
+            with self.subTest(existing=existing), tempfile.TemporaryDirectory() as tmp:
+                source, out = Path(tmp) / 'source.mid', Path(tmp) / 'out.mid'
+                fixture().save(source)
+                original = source.read_bytes()
+                destinations = [Path(str(out) + ext) for ext in ('', '.diff.json', '.json')]
+                if existing:
+                    for destination in destinations:
+                        destination.write_bytes(b'previous artifact')
+                replace = os.replace
+                failed = False
+
+                def fail_manifest(src, dst, **kwargs):
+                    nonlocal failed
+                    if Path(dst).name == out.name + '.json' and not failed:
+                        failed = True
+                        raise OSError('publish failed')
+                    return replace(src, dst, **kwargs)
+
+                with patch('os.replace', side_effect=fail_manifest):
+                    with self.assertRaisesRegex(OSError, 'publish failed'):
+                        apply_groove(source, {}, output_path=out)
+                self.assertTrue(failed)
+                self.assertEqual(source.read_bytes(), original)
+                for destination in destinations:
+                    if existing:
+                        self.assertEqual(destination.read_bytes(), b'previous artifact')
+                    else:
+                        self.assertFalse(destination.exists())
+                self.assertEqual(len(list(Path(tmp).iterdir())), 4 if existing else 1)
+
+    def test_replace_never_follows_a_late_source_link(self):
+        import os
+        from unittest.mock import patch
+        from aimusic.audio.groove.apply import apply_groove
+        from tests.test_audio_midi_events import fixture
+        with tempfile.TemporaryDirectory() as tmp:
+            source, out = Path(tmp) / 'source.mid', Path(tmp) / 'out.mid'
+            fixture().save(source)
+            original = source.read_bytes()
+            replace = os.replace
+
+            def link_then_replace(src, dst, **kwargs):
+                if Path(dst).name == out.name + '.json':
+                    Path(str(out) + '.json').symlink_to(source)
+                return replace(src, dst, **kwargs)
+
+            with patch('os.replace', side_effect=link_then_replace):
+                apply_groove(source, {}, output_path=out)
+            self.assertEqual(source.read_bytes(), original)
+            manifest = json.loads(Path(str(out) + '.json').read_text())
+            self.assertEqual(manifest['output_path'], str(out))
+            self.assertEqual(manifest['metadata']['diff_report'], str(out) + '.diff.json')
+            self.assertFalse(Path(str(out) + '.json').is_symlink())
+
+    def test_rational_swing_half_even_at_low_ppqn(self):
+        import mido
+        from tests.test_audio_midi_events import track
+        from aimusic.audio.groove.apply import _apply_to_events
+        from aimusic.audio.groove.spec import parse_groove_spec
+        from aimusic.audio.midi_events import MidiEvents
+        midi = mido.MidiFile(type=0, ticks_per_beat=15)
+        midi.tracks = [track((8, mido.Message('note_on', note=60)),
+                             (13, mido.Message('note_off', note=60)))]
+        out, report = _apply_to_events(MidiEvents.from_mido(midi), parse_groove_spec(
+            {'swing': {'ratio': .6, 'subdivision': 8, 'applies_to': ['comp']}}))
+        self.assertEqual((out.notes[0].start, out.notes[0].end), (10, 15))
+        self.assertEqual(report['note_diffs'][0]['offset_ticks'], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
