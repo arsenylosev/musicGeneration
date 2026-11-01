@@ -140,7 +140,36 @@ PrettyMIDI 0.2.11.post0 and SoundFile 0.14.0:
 This evidence is presented for human review of event fidelity (task 5.3). It is
 **not** human approval, native instrument recognizability, monophonic/polyphonic
 f0 measurement, CLAP/FAD scoring or a mastered-audio quality claim. Native asset
-selection, listening gates and C5+ implementation remain outstanding.
+selection, listening gates and C6+ implementation remain outstanding.
+
+## Registry/cache contract checkpoint C5
+
+[Renderer/cache contracts](audio-renderer-cache.md) describe routing, classified
+fallback, actual-backend provenance and complete digest manifests. C5 tightens
+simple admission: the C4 MPE/MTS event-isolation tests still preserve all payloads,
+but simple rendering of those unsupported pitches is now rejected, not flattened.
+The C4 multi-channel/silent preview test uses direct-12 channel content instead.
+
+Recorded C5 verification (2026-11-01, existing Python 3.12.12 audio/dev venv):
+
+- Lightweight audio + architecture + RenderPackage: **208 passed**, 224 subtests,
+  **1 skipped** optional bridge integration; one retained non-track-0 metadata
+  warning from the event-fidelity fixture.
+- Full unittest discovery: **541 run**, **9 skipped**, no failures (63.732 s).
+- `flake8 aimusic tests ui.py`: clean; `mypy aimusic tests ui.py`: no issues in
+  118 files. Strict OpenSpec validation and `git diff --check`: clean.
+- TDD reproduced registry bypass, broad bridge fallback, stale/corrupt cache reuse,
+  output-report overwrite and valid-entry substitution during copying. An inverted
+  capability condition was killed by registry tests and restored.
+- A real subprocess exit during cache production left no complete entry; a retry
+  produced a new verified result. Existing planner-handoff coverage now wraps
+  actual stages instead of pretending missing sidecars are successful output.
+- `python -m aimusic.app.cli generate --seed 11 --beats 4 --out <scratch>` followed
+  by preview orchestration produced a 48 kHz, 108000-frame rough mix (RMS 0.05272).
+  Cold expression/render misses became warm hits; mix bytes were identical.
+
+No native FluidSynth lane, SoundFont, audio-f0 certification or human listening
+acceptance is claimed by C5. Only tasks 6.1–6.4 are completed in this checkpoint.
 
 ## Risks
 

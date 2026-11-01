@@ -137,3 +137,23 @@ class TestAudioBridge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestExplicitBackendFailurePolicy(unittest.TestCase):
+    def test_native_defect_never_calls_bridge_even_when_available(self):
+        from aimusic.audio.bridge import render_audio_from_package
+        from tests.test_audio_entry import _generate_package
+        with tempfile.TemporaryDirectory() as tmp_s:
+            tmp = Path(tmp_s)
+            package = _generate_package(tmp)
+            with mock.patch.dict(os.environ, {'AIMUSIC_AUDIO_BACKEND': 'native'}), mock.patch(
+                'aimusic.audio.orchestrator.Orchestrator.run', side_effect=RuntimeError('native defect')
+            ), mock.patch('aimusic.audio.bridge.m2a_available', return_value=True) as available:
+                with self.assertRaisesRegex(RuntimeError, 'native defect'):
+                    render_audio_from_package(package, output_dir=tmp / 'out')
+                available.assert_not_called()
+
+    def test_unknown_application_backend_is_an_error(self):
+        from aimusic.audio.bridge import resolve_backend
+        with mock.patch.dict(os.environ, {'AIMUSIC_AUDIO_BACKEND': 'typo'}), self.assertRaisesRegex(ValueError, 'typo'):
+            resolve_backend()

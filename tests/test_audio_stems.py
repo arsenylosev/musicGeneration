@@ -536,6 +536,16 @@ class TestStemNamespace(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_s:
             tmp = Path(tmp_s)
             midi = _logical_fixture()
+            # C5 now refuses lossy simple rendering. Event-fidelity tests above
+            # retain the original MPE/MTS fixture; this preview is direct-12.
+            for track in midi.tracks:
+                for i in range(len(track) - 1, -1, -1):
+                    msg = track[i]
+                    if (msg.type in ('pitchwheel', 'sysex') or
+                            msg.type == 'control_change' and msg.control in (6, 38, 100, 101)):
+                        if i + 1 < len(track):
+                            track[i + 1].time += msg.time
+                        del track[i]
             midi.tracks.append(_event_track((0, mido.MetaMessage('track_name', name='silent'))))
             path = tmp / 'src.mid'
             midi.save(path)

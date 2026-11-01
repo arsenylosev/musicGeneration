@@ -65,19 +65,11 @@ def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
 
 
 def resolve_backend() -> str:
-    """Return ``native`` or ``m2a`` based on env and import availability."""
+    """Native is the product default; the bridge requires explicit selection."""
     forced = os.environ.get("AIMUSIC_AUDIO_BACKEND", "").strip().lower()
-    if forced in {"native", "m2a"}:
-        return forced
-    try:
-        import importlib.util
-
-        spec = importlib.util.find_spec("aimusic.audio.orchestrator")
-        if spec is not None:
-            return "native"
-    except ModuleNotFoundError:
-        pass
-    return "m2a"
+    if forced not in {"", "native", "m2a"}:
+        raise ValueError(f"unknown audio backend: {forced}")
+    return forced or "native"
 
 
 def m2a_available() -> bool:
@@ -119,21 +111,13 @@ def render_audio_from_package(
         if output_dir
         else Path(cfg.get("paths", {}).get("output_dir", "outputs/audio"))
     )
-    out.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(package.midi_path, out / "score.mid")
-    shutil.copy2(package.structure_path, out / "structure.json")
-
     backend = resolve_backend()
     if backend == "native":
-        try:
-            from aimusic.audio.orchestrator import Orchestrator
+        from aimusic.audio.from_score import from_score
+        from aimusic.audio.orchestrator import Orchestrator
 
-            orch = Orchestrator(config=cfg, cache_dir=Path(cfg["paths"]["cache_dir"]))
-            return orch.run(package.midi_path, output_dir=out)
-        except Exception:
-            if not m2a_available():
-                raise
-            backend = "m2a"
+        orch = Orchestrator(config=cfg, cache_dir=Path(cfg["paths"]["cache_dir"]))
+        return orch.run(from_score(package.root), output_dir=out)
 
     if backend == "m2a":
         if not m2a_available():
@@ -141,6 +125,9 @@ def render_audio_from_package(
                 "AIMUSIC_AUDIO_BACKEND=m2a requires optional bridge deps. "
                 "Install with: pip install -e '.[audio-bridge]'"
             )
+        out.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(package.midi_path, out / "score.mid")
+        shutil.copy2(package.structure_path, out / "structure.json")
         from m2a.orchestrator import Orchestrator as M2AOrchestrator
 
         orch = M2AOrchestrator(config=cfg, cache_dir=Path(cfg["paths"]["cache_dir"]))

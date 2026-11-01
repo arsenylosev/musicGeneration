@@ -7,6 +7,7 @@ import re
 import shutil
 import tempfile
 import unicodedata
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,10 @@ import soundfile as sf
 
 from aimusic.audio.analysis.from_midi import _infer_role
 from aimusic.audio.midi_events import MidiEvents, MidiEventError
-from aimusic.audio.render.simple_r import _peak_dbfs, render_stem
+from aimusic.audio.config import normalize_routing, resolve_soundfont
+from aimusic.audio.render.registry import RenderRequest, ResolvedRenderer, render_request as render_stem
+from aimusic.audio.render import registry
+from aimusic.audio.render.simple_r import _peak_dbfs
 from aimusic.audio.render.stem_publication import pin_output
 from aimusic.audio.render.util import as_mono, peak_normalize
 
@@ -137,19 +141,68 @@ def _stem_id(stem: SourceStem) -> str:
     return f'track_{stem.source_track_index:04d}_{slug}'
 
 
-def copy_stem_artifacts(source: Path, output: Path) -> None:
+def copy_stem_artifacts(source: Path, output: Path, *, verify_cache: bool = False) -> None:
     """Restore a stem directory without deleting or overwriting user files."""
     files = sorted(p for p in source.iterdir() if p.name != '_complete')
     if any(p.is_symlink() or not p.is_file() for p in files):
         raise ValueError('Stem artifacts must be regular files, not symlinks/directories')
     names = [p.name for p in files]
+    if verify_cache:
+        names.remove('cache_manifest.json')
+        names.append('cache_manifest.json')
     with pin_output(output) as root:
         root.check_new_files(names)
         with tempfile.TemporaryDirectory(prefix='.stems-') as tmp:
             staging = Path(tmp)
             for path in files:
                 shutil.copyfile(path, staging / path.name)
+            if verify_cache:
+                from aimusic.audio.cache import MANIFEST, verified_entry
+                if not verified_entry(staging, source.name, [n for n in names if n != MANIFEST]):
+                    raise ValueError('cache changed during restore; retry')
             root.publish(staging, names)
+
+
+@dataclass(frozen=True)
+class StemRenderPlan:
+    stems: tuple[SourceStem, ...]
+    renderers: tuple[ResolvedRenderer, ...]
+    config: dict[str, Any]
+    tuning: dict[str, Any]
+    bounds: list[float]
+    duration_sec: float
+    release_tail_sec: float
+
+    @property
+    def names(self) -> list[str]:
+        return [_stem_id(stem) + suffix for stem in self.stems for suffix in ('.mid', '.wav', '.wav.json')] + list(GENERATED.values())
+
+
+def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None = None,
+                        analysis: dict[str, Any] | None = None) -> StemRenderPlan:
+    """Resolve every role/capability/asset before rendering or querying its cache."""
+    source = MidiEvents.load(midi_path)
+    logical = isolate_source_stems(source, analysis=analysis)
+    if not logical:
+        raise ValueError('no source stems to render')
+    cfg = deepcopy(config or {})
+    cfg['render'] = normalize_routing(cfg.get('render', {}))
+    asset = resolve_soundfont(cfg)
+    metadata = analysis or {}
+    declarations = {row.get('source_track_index'): row for row in metadata.get('tracks', [])}
+    choices = tuple(registry.resolve_renderer(
+        stem.role, config=cfg, soundfont=asset,
+        tuning=registry.required_tuning(stem.midi, {**metadata, **declarations.get(stem.source_track_index, {})},
+                                        drums=stem.channels == (9,))) for stem in logical)
+    end = float(source.tempo_map.seconds(max(e.tick for e in source.events)))
+    bounds = metadata.get('bar_boundaries_sec')
+    if not bounds:
+        tempo = next((value for tick, value in source.tempo_map.changes if tick == 0), 500000)
+        bar = 4 * tempo / 1000000
+        bounds = [i * bar for i in range(max(1, round(end / bar)) + 1)]
+        bounds[-1] = end
+    return StemRenderPlan(logical, choices, cfg, metadata.get('tuning', {}), bounds,
+                          max(end, float(bounds[-1])), float(cfg['render'].get('release_tail_sec', 0.25)))
 
 
 def render_role_stems(
@@ -158,17 +211,15 @@ def render_role_stems(
     output_dir: Path | str,
     config: dict[str, Any] | None = None,
     analysis: dict[str, Any] | None = None,
+    plan: StemRenderPlan | None = None,
 ) -> dict[str, Path]:
     """Render each logical source once; publish safe IDs plus a role index.
 
     Preserved event MIDI is the renderer input. Simple still provides only
     integer-pitch sine previews, not instrument/controller/tuning certification.
     """
-    source = MidiEvents.load(midi_path)
-    logical = isolate_source_stems(source, analysis=analysis)
-    if not logical:
-        raise ValueError('no source stems to render')
-    cfg = config or {}
+    plan = plan or prepare_stem_render(midi_path, config=config, analysis=analysis)
+    logical, cfg = plan.stems, plan.config
     sr = int(cfg.get('render', {}).get('sample_rate', 48000))
     peak_dbfs = _peak_dbfs(cfg)
     rows: list[dict[str, Any]] = []
@@ -183,29 +234,20 @@ def render_role_stems(
     names = [row['id'] + suffix for row in rows for suffix in ('.mid', '.wav', '.wav.json')]
     names.extend(GENERATED.values())
 
-    bounds = (analysis or {}).get('bar_boundaries_sec')
-    if not bounds:
-        end = float(source.tempo_map.seconds(max(e.tick for e in source.events)))
-        tempo = next((value for tick, value in source.tempo_map.changes if tick == 0), 500000)
-        bar = 4 * tempo / 1000000
-        bounds = [i * bar for i in range(max(1, round(end / bar)) + 1)]
-        bounds[-1] = end
+    bounds = plan.bounds
 
     with pin_output(output_dir) as root:
         root.check_new_files(names)
         with tempfile.TemporaryDirectory(prefix='.stems-') as tmp:
             staging = Path(tmp)
             waves: list[Path | str] = []
-            for stem, row in zip(logical, rows):
-                midi_path = staging / row['midi']
-                stem.midi.save(midi_path)
+            for stem, row, selected in zip(logical, rows, plan.renderers):
+                stem_path = staging / row['midi']
+                stem.midi.save(stem_path)
                 wav_path = staging / row['wav']
-                render_stem(midi_path, output_path=wav_path, config=cfg, sample_rate=sr)
-                # Relative artifact references survive cache-directory copies.
-                sidecar = Path(str(wav_path) + '.json')
-                manifest = json.loads(sidecar.read_text(encoding='utf-8'))
-                manifest['output_path'] = row['wav']
-                sidecar.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding='utf-8')
+                request = RenderRequest(stem_path, wav_path, plan.tuning, selected.required_tuning, sr,
+                                        plan.duration_sec, plan.release_tail_sec, selected.soundfont, cfg)
+                render_stem(request, selected)
                 waves.append(wav_path)
             render_click(bounds, sample_rate=sr, output_path=staging / GENERATED['click'], peak_dbfs=peak_dbfs)
             rough_mix(waves, output_path=staging / GENERATED['rough_mix'], peak_dbfs=peak_dbfs)

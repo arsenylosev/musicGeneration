@@ -357,24 +357,26 @@ class TestAudioReconcile(unittest.TestCase):
 
     def test_full_pipeline_receives_planner_context_and_warm_corruption_fails(self) -> None:
         import json
-        import shutil
         from unittest.mock import patch
         from aimusic.audio.orchestrator import Orchestrator
+        from aimusic.audio.groove.apply import apply_groove
+        from aimusic.audio.render.stems import prepare_stem_render, render_role_stems
         from aimusic.core.render_package import ContractViolation
 
-        config = {'stages': {'analysis': False, 'expressivization': True, 'render': True}}
+        config = {'stages': {'analysis': False, 'expressivization': True, 'render': True},
+                  'groove': {'spec': {}}}  # Test context handoff, not conflicting shared-bend retiming.
         orch = Orchestrator(config=config, cache_dir=self.root / 'cache')
 
-        def groove(path, spec, *, output_path, **kwargs):
-            shutil.copyfile(path, output_path)
-            return output_path
-
+        # Use real stage outputs: C5 requires complete sidecars and WAVs before
+        # publishing a cache entry; mocks that return no artifacts are invalid.
         with patch('aimusic.audio.analysis.from_midi.analyze_midi') as infer, patch(
-            'aimusic.audio.groove.apply.apply_groove', side_effect=groove,
-        ) as apply, patch('aimusic.audio.render.stems.render_role_stems') as render:
+            'aimusic.audio.groove.apply.apply_groove', wraps=apply_groove,
+        ) as apply, patch('aimusic.audio.render.stems.prepare_stem_render', wraps=prepare_stem_render) as prepare, patch(
+            'aimusic.audio.render.stems.render_role_stems', wraps=render_role_stems,
+        ) as render:
             out = orch.run(self.ctx, output_dir=self.root / 'out')
             infer.assert_not_called()
-            for stage in (apply, render):
+            for stage in (apply, prepare):
                 doc = stage.call_args.kwargs['analysis']
                 self.assertEqual(doc['provenance'], 'planner')
                 self.assertEqual(doc['tracks'][0]['source_track_index'], 1)

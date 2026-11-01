@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import json
 import shutil
+import platform
+from copy import deepcopy
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +19,9 @@ import yaml
 
 from aimusic.audio.from_score import AudioPackageContext, from_score, validate_package
 from aimusic.audio.manifest import content_hash_files
+from aimusic.audio.cache import cached_stage
+from aimusic.audio.render.registry import file_digest
+from aimusic.audio.render.stem_publication import pin_output
 from aimusic.core.render_package import ContractViolation
 
 
@@ -105,6 +111,13 @@ class Orchestrator:
             if cached_sidecar.is_file():
                 shutil.copy2(cached_sidecar, dest_sidecar)
 
+    def _cached_stage(self, stage: str, identity: dict[str, Any], names: list[str],
+                      produce: Callable[[Path], Any]) -> Path:
+        directory, hit = cached_stage(self.cache_dir / stage, identity, names, produce)
+        counts = self.cache_hits if hit else self.cache_misses
+        counts[stage] = counts.get(stage, 0) + 1
+        return directory
+
     def _load_groove_spec(self) -> dict[str, Any]:
         groove_cfg = self.config.get("groove", {})
         spec_path = groove_cfg.get("spec_path") or groove_cfg.get("spec_file")
@@ -165,8 +178,18 @@ class Orchestrator:
 
         from aimusic.audio.analysis.from_midi import analyze_midi
         from aimusic.audio.groove.apply import apply_groove
-        from aimusic.audio.render.stems import STEM_LAYOUT_VERSION, copy_stem_artifacts, render_role_stems
+        from aimusic.audio.render.stems import (
+            STEM_LAYOUT_VERSION, copy_stem_artifacts, prepare_stem_render, render_role_stems,
+        )
 
+        code_identity = {str(p.relative_to(Path(__file__).parent)): file_digest(p)
+                         for p in sorted(Path(__file__).parent.rglob('*.py'))}
+        runtime = {'python': platform.python_version(), 'platform': platform.platform()}
+        source_identity = {'midi_sha256': file_digest(midi_path),
+                           **(context.verified_identity if context else {})}
+        if context:
+            source_identity['structure_sha256'] = file_digest(context.package.structure_path)
+            source_identity['tuning_sha256'] = file_digest(context.package.tuning_path)
         analysis_doc: dict[str, Any] | None = None
         expressive_midi = midi_path
 
@@ -182,88 +205,70 @@ class Orchestrator:
                 json.dumps(analysis_doc, indent=2, sort_keys=True), encoding="utf-8"
             )
         elif stages.get("analysis", True):
-            subset: dict[str, Any] = {"code_version": code_version}
-            key = self.cache_key("analysis", [midi_path], subset)
-            cached = self.cached_path("analysis", key, ".analysis.json")
+            identity: dict[str, Any] = {'source': source_identity, 'code': code_identity, 'runtime': runtime,
+                        'code_version': code_version}
+            cached = self._cached_stage('analysis', identity, ['analysis.json', 'analysis.json.json'],
+                                        lambda directory: analyze_midi(midi_path, config=self.config,
+                                                                       output_path=directory / 'analysis.json'))
             dest = out / f"{midi_path.stem}.analysis.json"
-            if cached.is_file():
-                self.cache_hits["analysis"] = self.cache_hits.get("analysis", 0) + 1
-                self._copy_stage_artifacts(cached, dest, ".json")
-                analysis_doc = json.loads(dest.read_text(encoding="utf-8"))
-            else:
-                self.cache_misses["analysis"] = self.cache_misses.get("analysis", 0) + 1
-                cached.parent.mkdir(parents=True, exist_ok=True)
-                analysis_doc = analyze_midi(
-                    midi_path, config=self.config, output_path=cached
-                )
-                self._copy_stage_artifacts(cached, dest, ".json")
+            self._copy_stage_artifacts(cached / 'analysis.json', dest, '.json')
+            analysis_doc = json.loads(dest.read_text(encoding='utf-8'))
 
         if stages.get("expressivization", True):
             groove_spec = self._load_groove_spec()
             light = bool(self.config.get("groove", {}).get("light_cleanup", False))
-            subset = {
-                "package_hash": context.package.content_hash if context else None,
-                "groove": groove_spec,
-                "light_cleanup": light,
-                "code_version": code_version,
-            }
-            key = self.cache_key("expressivization", [midi_path], subset)
-            cached = self.cached_path("expressivization", key, ".expressive.mid")
+            identity = {'source': source_identity, 'groove': groove_spec, 'light_cleanup': light,
+                        'analysis': _semantic_analysis(analysis_doc), 'code': code_identity,
+                        'runtime': runtime, 'code_version': code_version}
+            names = ['expressive.mid', 'expressive.mid.diff.json', 'expressive.mid.json']
+            cached = self._cached_stage('expressivization', identity, names,
+                lambda directory: apply_groove(midi_path, groove_spec, analysis=analysis_doc,
+                                                output_path=directory / 'expressive.mid',
+                                                config=self.config, light_cleanup=light))
             dest = out / f"{midi_path.stem}.expressive.mid"
-            if cached.is_file():
-                self.cache_hits["expressivization"] = (
-                    self.cache_hits.get("expressivization", 0) + 1
-                )
-                self._copy_stage_artifacts(cached, dest, ".diff.json", ".json")
-            else:
-                self.cache_misses["expressivization"] = (
-                    self.cache_misses.get("expressivization", 0) + 1
-                )
-                cached.parent.mkdir(parents=True, exist_ok=True)
-                apply_groove(
-                    midi_path,
-                    groove_spec,
-                    analysis=analysis_doc,
-                    output_path=cached,
-                    config=self.config,
-                    light_cleanup=light,
-                )
-                self._copy_stage_artifacts(cached, dest, ".diff.json", ".json")
+            self._copy_stage_artifacts(cached / 'expressive.mid', dest, '.diff.json', '.json')
             expressive_midi = dest
 
         if stages.get("render", True):
-            render_cfg = self.config.get("render", {})
+            plan = prepare_stem_render(expressive_midi, config=self.config, analysis=analysis_doc)
+            effective = deepcopy(plan.config)
+            effective.pop('source_path', None)
+            effective['paths'] = {k: v for k, v in effective.get('paths', {}).items()
+                                  if k not in ('cache_dir', 'output_dir', 'soundfont')}
+            for key in ('spec_path', 'spec_file'):
+                effective.get('groove', {}).pop(key, None)
+            if stages.get('expressivization', True):
+                effective.setdefault('groove', {})['spec'] = groove_spec
             render_subset = {
-                "stem_layout_version": STEM_LAYOUT_VERSION,
-                "package_hash": context.package.content_hash if context else None,
-                "sample_rate": render_cfg.get("sample_rate"),
-                "peak_dbfs": render_cfg.get("peak_dbfs", render_cfg.get("headroom_dbfs")),
-                "backend": render_cfg.get("backend", "simple"),
-                "soundfont": self.config.get("paths", {}).get("soundfont"),
-                "code_version": code_version,
+                'stem_layout_version': STEM_LAYOUT_VERSION, 'source': source_identity,
+                'expressive_midi_sha256': file_digest(expressive_midi),
+                'analysis': _semantic_analysis(analysis_doc), 'effective_config': effective,
+                'application_backend': {'requested_backend': 'native', 'effective_backend': 'native',
+                                        'fallback_reason': None},
+                'renderers': [dict(choice.identity(), source_track_index=stem.source_track_index,
+                                   role=stem.role, role_source=stem.role_source)
+                              for stem, choice in zip(plan.stems, plan.renderers)],
+                'duration_sec': plan.duration_sec, 'release_tail_sec': plan.release_tail_sec,
+                'code': code_identity, 'runtime': runtime,
             }
-            key = self.cache_key("render", [expressive_midi], render_subset)
-            cached_dir = self.cache_dir / "render" / key[:16]
-            stems_dir = out / "stems"
-            marker = cached_dir / "_complete"
-            if marker.is_file():
-                self.cache_hits["render"] = self.cache_hits.get("render", 0) + 1
-                copy_stem_artifacts(cached_dir, stems_dir)
-            else:
-                self.cache_misses["render"] = self.cache_misses.get("render", 0) + 1
-                if cached_dir.exists():
-                    shutil.rmtree(cached_dir)
-                cached_dir.mkdir(parents=True, exist_ok=True)
-                render_role_stems(
-                    expressive_midi,
-                    output_dir=cached_dir,
-                    config=self.config,
-                    analysis=analysis_doc,
-                )
-                marker.write_text("ok", encoding="utf-8")
-                copy_stem_artifacts(cached_dir, stems_dir)
+
+            def produce(directory: Path) -> None:
+                render_role_stems(expressive_midi, output_dir=directory, plan=plan)
+                (directory / 'render.json').write_text(json.dumps(render_subset, indent=2, sort_keys=True), encoding='utf-8')
+
+            with pin_output(out) as root:
+                root.check_new_files(['render.json'])
+                cached_dir = self._cached_stage('render', render_subset, plan.names + ['render.json'], produce)
+                # Recheck the copied snapshot before publishing it; manifest last.
+                copy_stem_artifacts(cached_dir, out / 'stems', verify_cache=True)
+                root.publish(out / 'stems', ['render.json'])
 
         return out
+
+
+def _semantic_analysis(analysis: dict[str, Any] | None) -> dict[str, Any]:
+    """Source paths are display provenance, not semantic content identity."""
+    return {k: v for k, v in (analysis or {}).items() if k != 'source_midi'}
 
 
 def load_config(path: Path | str) -> dict[str, Any]:

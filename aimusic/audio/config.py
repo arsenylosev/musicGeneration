@@ -234,7 +234,7 @@ def _absolute_path(value: Path | str, origin: Path) -> Path:
     return (path if path.is_absolute() else origin / path).resolve()
 
 
-def resolve_soundfont(config: AudioConfig, *, explicit: Path | str | None = None) -> Path | None:
+def resolve_soundfont(config: AudioConfig | dict[str, Any], *, explicit: Path | str | None = None) -> Path | None:
     """Resolve CLI > config/profile > environment, without loading a native library.
 
     Config-relative assets were anchored at load time. CLI/environment relative
@@ -243,7 +243,8 @@ def resolve_soundfont(config: AudioConfig, *, explicit: Path | str | None = None
     """
     candidates = (
         ("--soundfont", explicit),
-        ("paths.soundfont", config.paths.soundfont),
+        ("paths.soundfont", config.paths.soundfont if isinstance(config, AudioConfig)
+         else config.get("paths", {}).get("soundfont")),
         ("AIMUSIC_SOUNDFONT", os.environ.get("AIMUSIC_SOUNDFONT")),
     )
     for source, value in candidates:

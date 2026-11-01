@@ -63,10 +63,10 @@ Suggested message: `refactor(audio): route stems through verified renderer and c
 
 Files: `audio/render/registry.py`, `stems.py`, `orchestrator.py`, `bridge.py`, renderer/cache tests and provenance docs.
 
-- [ ] 6.1 Define renderer request/result and capability contracts, resolve each role before cache lookup, and route simple rendering through the registry; verify mocked `tests/test_audio_registry.py` proves role selection and rejects unsupported tuning rather than flattening it.
-- [ ] 6.2 Remove catch-all native-to-m2a failover while retaining explicit backend selection and compatible missing-resource fallback; verify bridge/registry tests distinguish missing dependencies, native runtime defects, listening no-fallback and requested/effective backend records.
-- [ ] 6.3 Expand fingerprints to verified inputs, metadata, effective config/routes, fallback policy, renderer versions and SoundFont bytes; verify orchestrator tests mutate each input independently, including same-path asset replacement and changed tuning/structure, and require cache misses.
-- [ ] 6.4 Publish complete cache manifests last, verify output digests before reuse and restore provenance sidecars; verify interrupted/corrupt-cache tests and byte-identical warm restores, document cache invalidation and effective-backend fields, then commit C5 with the full lightweight lane green.
+- [x] 6.1 Define renderer request/result and capability contracts, resolve each role before cache lookup, and route simple rendering through the registry; verify mocked `tests/test_audio_registry.py` proves role selection and rejects unsupported tuning rather than flattening it.
+- [x] 6.2 Remove catch-all native-to-m2a failover while retaining explicit backend selection and compatible missing-resource fallback; verify bridge/registry tests distinguish missing dependencies, native runtime defects, listening no-fallback and requested/effective backend records.
+- [x] 6.3 Expand fingerprints to verified inputs, metadata, effective config/routes, fallback policy, renderer versions and SoundFont bytes; verify orchestrator tests mutate each input independently, including same-path asset replacement and changed tuning/structure, and require cache misses.
+- [x] 6.4 Publish complete cache manifests last, verify output digests before reuse and restore provenance sidecars; verify interrupted/corrupt-cache tests and byte-identical warm restores, document cache invalidation and effective-backend fields, then commit C5 with the full lightweight lane green.
 
 ## 7. FluidSynth instrument path — commit C6 / review gate B (MUS-34)
 

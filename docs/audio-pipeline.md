@@ -71,7 +71,9 @@ Native `aimusic.audio` is the default product path
 
 ## Determinism, caching, provenance
 
-- Cache keys: content hashes of inputs + canonical config subset + code version.
+- Cache keys resolve actual per-role renderers first and include verified inputs,
+  normalized config/routes, capabilities/runtime/code and SoundFont bytes. Complete
+  manifests verify every cached output; see [renderer/cache contracts](audio-renderer-cache.md).
 - Nondeterministic steps (LLM groove authoring, paid endpoints) sit behind artifact
   boundaries; cache hits are bit-identical.
 - `RunManifest` is extended with audio stage records (prompts, seeds, costs, hashes).
