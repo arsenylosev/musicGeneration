@@ -182,7 +182,7 @@ class TestFluidSynthIntegration(unittest.TestCase):
                                    ('flat', 0, True), ('warm-reference', 0, False)]:
             config = deepcopy(self.config)
             config['stages']['expressivization'] = bool(offset)
-            config['groove'] = {'spec': {'microtiming_ms': {'comp': {'global_offset': 12.5}}}}
+            config['groove'] = {'spec': {'microtiming_ms': {'lead': {'global_offset': 12.5}}}}
             path = source
             if flat:
                 midi = mido.MidiFile(source)
@@ -195,6 +195,9 @@ class TestFluidSynthIntegration(unittest.TestCase):
             out = self.root / name
             runner = Orchestrator(config, self.root / 'reference-cache')
             runner.run(from_midi(path), output_dir=out)
+            if offset:
+                diff = json.loads((out / 'source.expressive.mid.diff.json').read_text())
+                self.assertEqual([(r['role'], r['offset_ticks']) for r in diff['note_diffs']], [('lead', 12)] * 3)
             manifest = json.loads((out / 'render.json').read_text())
             cache_manifest = json.loads((out / 'stems/cache_manifest.json').read_text())
             self.assertEqual(cache_manifest['fingerprint'], manifest)

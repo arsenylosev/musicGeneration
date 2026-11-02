@@ -158,6 +158,38 @@ class TestImportedContext(unittest.TestCase):
                         self.assertGreater(float(np.max(np.abs(audio[55000:57000]))), 1e-5)
                     self.assertEqual(source.read_bytes(), original)
 
+    def test_imported_roles_drive_groove_and_render_reports_by_source_identity(self) -> None:
+        from aimusic.audio.from_midi import from_midi
+        from aimusic.audio.midi_events import MidiEvents
+        from aimusic.audio.orchestrator import Orchestrator
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'roles.mid'
+            midi = mido.MidiFile(type=1, ticks_per_beat=480)
+            midi.tracks = [mido.MidiTrack([mido.MetaMessage('set_tempo', tempo=500000)])]
+            for channel, program, name in [(0, 80, 'texture'), (1, 33, 'texture'), (2, 40, 'accompaniment')]:
+                midi.tracks.append(mido.MidiTrack([
+                    mido.MetaMessage('track_name', name=name),
+                    mido.Message('program_change', channel=channel, program=program),
+                    mido.Message('note_on', channel=channel, note=60, velocity=80),
+                    mido.Message('note_off', channel=channel, note=60, time=240)]))
+            midi.save(source)
+            config = {'groove': {'spec': {'microtiming_ms': {
+                'lead': {'global_offset': 12.5}, 'bass': {'global_offset': 25},
+                'comp': {'global_offset': 37.5}}}}}
+            out = Orchestrator(config, root / 'cache').run(from_midi(source), output_dir=root / 'out')
+            expressive = MidiEvents.load(out / 'roles.expressive.mid')
+            self.assertEqual([(n.track, n.start, n.end) for n in expressive.notes],
+                             [(1, 12, 252), (2, 24, 264), (3, 36, 276)])
+            roles = ['lead', 'bass', 'comping']
+            diff = json.loads((out / 'roles.expressive.mid.diff.json').read_text())
+            self.assertEqual([(r['role'], r['offset_ticks']) for r in diff['note_diffs']], list(zip(roles, (12, 24, 36))))
+            for file, key in [('roles.analysis.json', 'tracks'), ('render.json', 'renderers'), ('stems/role_index.json', 'stems')]:
+                rows = json.loads((out / file).read_text())[key]
+                self.assertEqual([(r['source_track_index'], r['role']) for r in rows], list(enumerate(roles, 1)))
+            self.assertEqual((out / 'source.mid').read_bytes(), source.read_bytes())
+
     def test_stale_context_rejected_before_publication(self) -> None:
         from aimusic.audio.config import load_audio_config
         from aimusic.audio.from_midi import from_midi

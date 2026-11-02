@@ -7,7 +7,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from aimusic.audio.analysis.from_midi import infer_role
+from aimusic.audio.analysis.from_midi import infer_source_tracks
 from aimusic.audio.midi_events import MidiEvents, MidiEventError
 
 # Bound derived analysis memory/work, not MIDI resolution or denominator alone.
@@ -56,40 +56,10 @@ class ImportedMidiContext:
             'time_signature': dict(zip(('numerator', 'denominator'), meters[0])),
             'duration_sec': float(source.tempo_map.seconds(end)),
             'bar_boundaries_sec': _bar_boundaries(source, meters, end),
-            'tracks': _tracks(source), 'total_notes': len(source.notes),
+            'tracks': infer_source_tracks(source), 'total_notes': len(source.notes),
             'tuning': {'source': 'MIDI events', 'intended_lattice': 'unknown',
                        'audio_pitch_accuracy': 'unmeasured', 'events': evidence},
         }
-
-
-def _tracks(source: MidiEvents) -> list[dict[str, Any]]:
-    rows = []
-    for index, isolated in source.isolate_tracks().items():
-        name = next((e.message.name for e in source.events
-                     if e.track == index and e.message.type == 'track_name'), '')
-        channels = sorted({n.channel for n in isolated.notes})
-        current = {ch: 0 for ch in channels}
-        used: set[int] = set()
-        changes = []
-        for event in isolated.events:
-            msg = event.message
-            if event.channel not in current:
-                continue
-            if msg.type == 'program_change':
-                current[msg.channel] = msg.program
-                changes.append({'tick': event.tick, 'channel': msg.channel, 'program': msg.program})
-            if msg.type == 'note_on' and msg.velocity:
-                used.add(current[msg.channel])
-        programs = sorted(used)
-        percussion = channels == [9]
-        roles = {infer_role(name, p, percussion) for p in programs}
-        role = next(iter(roles)) if len(roles) == 1 and (9 not in channels or percussion) else 'mixed'
-        rows.append({'source_track_index': index, 'name': name, 'channels': channels,
-                     'role': role, 'role_source': 'inferred', 'count_source': 'MIDI events',
-                     'program': programs[0] if len(programs) == 1 else None,
-                     'programs': programs, 'program_changes': changes, 'is_drum': percussion,
-                     'note_count': len(isolated.notes)})
-    return rows
 
 
 def _meter_map(source: MidiEvents) -> dict[int, tuple[int, int]]:

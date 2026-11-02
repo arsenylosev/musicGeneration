@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     import pretty_midi as pm
 
 from aimusic.audio.manifest import content_hash_files, write_manifest
+from aimusic.audio.midi_events import MidiEvents
 
 ANALYSIS_VERSION = "1.0.0"
 
@@ -40,6 +41,37 @@ def infer_role(name: str, program: int, is_drum: bool) -> str:
     if 80 <= prog <= 103:
         return "lead"
     return "comping"
+
+
+def infer_source_tracks(source: MidiEvents) -> list[dict[str, Any]]:
+    """Infer roles once per SMF source track, not per PrettyMIDI instrument."""
+    rows = []
+    for index, isolated in source.isolate_tracks().items():
+        name = next((e.message.name for e in source.events
+                     if e.track == index and e.message.type == 'track_name'), '')
+        channels = sorted({n.channel for n in isolated.notes})
+        current = {ch: 0 for ch in channels}
+        used: set[int] = set()
+        changes = []
+        for event in isolated.events:
+            msg = event.message
+            if event.channel not in current:
+                continue
+            if msg.type == 'program_change':
+                current[msg.channel] = msg.program
+                changes.append({'tick': event.tick, 'channel': msg.channel, 'program': msg.program})
+            if msg.type == 'note_on' and msg.velocity:
+                used.add(current[msg.channel])
+        programs = sorted(used)
+        percussion = channels == [9]
+        roles = {infer_role(name, p, percussion) for p in programs}
+        role = next(iter(roles)) if len(roles) == 1 and (9 not in channels or percussion) else 'mixed'
+        rows.append({'source_track_index': index, 'name': name, 'channels': channels,
+                     'role': role, 'role_source': 'inferred', 'count_source': 'MIDI events',
+                     'program': programs[0] if len(programs) == 1 else None,
+                     'programs': programs, 'program_changes': changes, 'is_drum': percussion,
+                     'note_count': len(isolated.notes)})
+    return rows
 
 
 def _tempo_bpm(midi: pm.PrettyMIDI) -> float:
@@ -75,15 +107,10 @@ def _bar_boundaries_sec(midi: pm.PrettyMIDI, *, n_bars_hint: int | None = None) 
     return bounds
 
 
-def _track_entry(idx: int, instrument: pm.Instrument) -> dict[str, Any]:
-    pitches = [n.pitch for n in instrument.notes]
+def _track_entry(idx: int, track: dict[str, Any], pitches: list[int]) -> dict[str, Any]:
     return {
-        "index": idx,
-        "name": instrument.name or f"track_{idx}",
-        "program": int(instrument.program),
-        "is_drum": bool(instrument.is_drum),
-        "role": _infer_role(instrument),
-        "note_count": len(instrument.notes),
+        **track,
+        "index": idx,  # Legacy display order only; source_track_index is the identity.
         "pitch_min": min(pitches) if pitches else None,
         "pitch_max": max(pitches) if pitches else None,
     }
@@ -93,7 +120,14 @@ def build_analysis_document(
     midi_path: Path, midi: pm.PrettyMIDI, *, code_version: str
 ) -> dict[str, Any]:
     inputs_hash = content_hash_files([midi_path])
-    tracks = [_track_entry(i, inst) for i, inst in enumerate(midi.instruments)]
+    # PrettyMIDI may split/reorder source tracks by program/channel. Use the same
+    # event-based role authority as imported contexts, including explicit mixed roles.
+    source = MidiEvents.load(midi_path)
+    pitches: dict[int, list[int]] = {}
+    for note in source.notes:
+        pitches.setdefault(note.track, []).append(note.pitch)
+    tracks = [_track_entry(i, track, pitches[track["source_track_index"]])
+              for i, track in enumerate(infer_source_tracks(source))]
     return {
         "schema_version": ANALYSIS_VERSION,
         "code_version": code_version,

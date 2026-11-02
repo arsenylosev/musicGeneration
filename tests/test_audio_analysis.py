@@ -32,3 +32,24 @@ class TestImportedRoles(unittest.TestCase):
                     midi.write(str(path))
                     doc = analyze_midi(path, output_path=Path(tmp) / "analysis.json")
                     self.assertEqual(doc["tracks"][0]["role"], expected)
+
+    def test_legacy_file_analysis_provides_source_identity_for_groove(self) -> None:
+        import mido
+        from aimusic.audio.groove.apply import apply_groove
+        from aimusic.audio.midi_events import MidiEvents
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'source.mid'
+            midi = mido.MidiFile(type=1, ticks_per_beat=480)
+            # Empty tracks make instrument indices unusable as source identities.
+            midi.tracks = [mido.MidiTrack(), mido.MidiTrack(), mido.MidiTrack([
+                mido.MetaMessage('track_name', name='texture'),
+                mido.Message('program_change', program=80),
+                mido.Message('note_on', note=60, velocity=80),
+                mido.Message('note_off', note=60, time=240)])]
+            midi.save(source)
+            doc = analyze_midi(source, output_path=root / 'analysis.json')
+            self.assertEqual([(r['source_track_index'], r['role']) for r in doc['tracks']], [(2, 'lead')])
+            out = apply_groove(source, {'microtiming_ms': {'lead': {'global_offset': 12.5}}},
+                               analysis=doc, output_path=root / 'out.mid')
+            self.assertEqual([(n.start, n.end) for n in MidiEvents.load(out).notes], [(12, 252)])

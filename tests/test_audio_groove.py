@@ -265,6 +265,105 @@ class TestEventGroove(unittest.TestCase):
 
 
 @unittest.skipUnless(_audio_spine_available(), "requires audio extras")
+class TestAuthoritativeGroove(unittest.TestCase):
+    def setUp(self):
+        import mido
+        from tests.test_audio_midi_events import track
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.source = self.root / 'source.mid'
+        midi = mido.MidiFile(type=1, ticks_per_beat=480)
+        midi.tracks = [track((0, mido.MetaMessage('set_tempo', tempo=500000)))]
+        # Duplicate opaque names and a misleading name cannot identify roles.
+        for index, name in enumerate(('texture', 'texture', 'lead'), 1):
+            midi.tracks.append(track(
+                (0, mido.MetaMessage('track_name', name=name)),
+                (0, mido.Message('note_on', channel=index, note=60, velocity=80)),
+                (240, mido.Message('note_off', channel=index, note=60))))
+        midi.save(self.source)
+        self.rows = [{'source_track_index': i, 'role': role}
+                     for i, role in ((3, 'comping'), (1, 'lead'), (2, 'bass'))]
+        self.spec = {'microtiming_ms': {role: {'global_offset': ms}
+                                      for role, ms in (('lead', 12.5), ('bass', 25), ('comp', 37.5))}}
+
+    def apply(self, spec=None, **kwargs):
+        from aimusic.audio.groove.apply import apply_groove
+        from aimusic.audio.midi_events import MidiEvents
+        out = self.root / 'out.mid'
+        apply_groove(self.source, self.spec if spec is None else spec, output_path=out, **kwargs)
+        return MidiEvents.load(out), json.loads(Path(str(out) + '.diff.json').read_text())
+
+    def test_source_indices_override_names_and_keep_canonical_report_roles(self):
+        out, report = self.apply(analysis={'tracks': self.rows})
+        self.assertEqual([(n.track, n.start, n.end) for n in sorted(out.notes, key=lambda n: n.track)],
+                         [(1, 12, 252), (2, 24, 264), (3, 36, 276)])
+        self.assertEqual([(r['role'], r['offset_ticks']) for r in report['note_diffs']],
+                         [('lead', 12), ('bass', 24), ('comping', 36)])
+
+    def test_comping_uses_legacy_anticipation_articulation_and_ghost_fields(self):
+        rows = [dict(row, role='comping') for row in self.rows]
+        cases = [({'microtiming_ms': {'comp': {'global_offset': 25}},
+                   'anticipation': {'comp': {'prob': 1, 'push_ms': [12.5]}}}, [(12, 252)], 0),
+                 ({'articulation': {'comp': {'duration_scale': .5}}}, [(0, 120)], 0),
+                 ({'velocity': {'ghost_notes': {'comp': {'prob': 1, 'vel_scale': .5}}},
+                   'articulation': {'comp': {'duration_scale': .2}}}, [(0, 48), (60, 74)], 3)]
+        for spec, intervals, ghosts in cases:
+            with self.subTest(spec=spec):
+                out, report = self.apply(spec, analysis={'tracks': rows})
+                self.assertEqual([(n.start, n.end) for n in out.notes if n.track == 1], intervals)
+                self.assertEqual(report['ghost_inserted'], ghosts)
+                self.assertEqual({r['role'] for r in report['note_diffs']}, {'comping'})
+
+    def test_comping_swing_and_legacy_comp_alias(self):
+        import mido
+        midi = mido.MidiFile(self.source)
+        for track in midi.tracks[1:]:
+            next(m for m in track if m.type == 'note_on').time = 240
+        midi.save(self.source)
+        for role in ('comp', 'comping'):
+            with self.subTest(role=role):
+                rows = [dict(row, role=role) for row in self.rows]
+                out, report = self.apply({'swing': {'ratio': .75, 'subdivision': 8, 'applies_to': ['comp']}},
+                                         analysis={'tracks': rows})
+                self.assertEqual([(n.start, n.end) for n in out.notes], [(360, 600)] * 3)
+                self.assertEqual([(r['role'], r['offset_ticks']) for r in report['note_diffs']], [('comping', 120)] * 3)
+
+    def test_roles_without_microtiming_fields_are_not_rerouted_to_comp(self):
+        for role in ('piano', 'pads', 'ornament', 'mixed'):
+            with self.subTest(role=role):
+                out, report = self.apply(analysis={'tracks': [dict(row, role=role) for row in self.rows]})
+                self.assertEqual([(n.start, n.end) for n in out.notes], [(0, 240)] * 3)
+                self.assertEqual({r['role'] for r in report['note_diffs']}, {role})
+
+    def test_without_analysis_retains_legacy_name_fallback(self):
+        out, report = self.apply()
+        self.assertEqual([(n.start, n.end) for n in sorted(out.notes, key=lambda n: n.track)], [(36, 276), (36, 276), (12, 252)])
+        self.assertEqual([r['role'] for r in report['note_diffs']], ['comp', 'comp', 'lead'])
+
+    def test_invalid_or_ambiguous_mappings_fail_before_publication(self):
+        cases = [None, {}, [], ['lead'], self.rows[:1], self.rows + [self.rows[0]],
+                 [dict(row, source_track_index=0) for row in self.rows]]
+        for field, values in [('source_track_index', (None, True, '1', 1.0, -1, 99)),
+                              ('role', (None, '', 'unknown', ['lead']))]:
+            cases.extend([dict(self.rows[0], **{field: value}), *self.rows[1:]] for value in values)
+        cases.append([{'role': 'comping'}, *self.rows[1:]])
+        for rows in cases:
+            with self.subTest(rows=rows):
+                with self.assertRaisesRegex(ValueError, 'role|source_track_index'):
+                    self.apply(analysis={'tracks': rows})
+                self.assertEqual(list(self.root.iterdir()), [self.source])
+
+    def test_role_mapping_participates_in_expression_identity(self):
+        self.apply(analysis={'tracks': self.rows})
+        first = json.loads((self.root / 'out.mid.json').read_text())
+        rows = [dict(row, role='bass') for row in self.rows]
+        self.apply(analysis={'tracks': rows})
+        second = json.loads((self.root / 'out.mid.json').read_text())
+        self.assertNotEqual(first['inputs_hash'], second['inputs_hash'])
+
+
+@unittest.skipUnless(_audio_spine_available(), "requires audio extras")
 class TestReviewPublication(unittest.TestCase):
     def test_all_output_aliases_rejected_before_any_publication(self):
         from aimusic.audio.groove.apply import apply_groove

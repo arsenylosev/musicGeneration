@@ -24,7 +24,7 @@ class TestAudioReconcile(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.ctx = self.package()
 
-    def package(self, *, edo=12, name='texture', notes=None):
+    def package(self, *, edo=12, name='texture', notes=None, track_programs=None):
         score = Score(note_events=notes or (
             NoteEvent(ton=0, toff=480, h=19, v=0.8, track=name),
             NoteEvent(ton=240, toff=720, h=21, v=0.8, track=name),
@@ -34,7 +34,7 @@ class TestAudioReconcile(unittest.TestCase):
         render_midi(score, EDO(EDOConfig(n=edo, base_tuning=0, pitch_bend_range=2)), str(midi))
         package = write_render_package(
             self.root, score=score, midi_path=midi, manifest=RunManifest(seed=1, config_dump={}),
-            edo=edo, track_programs={name: 0} if name == 'texture' else None,
+            edo=edo, track_programs=track_programs or ({name: 0} if name == 'texture' else None),
         )
         return from_score(package.root)
 
@@ -393,6 +393,31 @@ class TestAudioReconcile(unittest.TestCase):
             self.assertFalse((self.root / 'warm').exists())
             self.assertEqual(apply.call_count, 1)
             self.assertEqual(render.call_count, 1)
+
+    def test_planner_roles_control_expressive_output_not_source_names(self) -> None:
+        import json
+        from aimusic.audio.midi_events import MidiEvents
+        from aimusic.audio.orchestrator import Orchestrator
+
+        config = {'stages': {'expressivization': True, 'render': True},
+                  'groove': {'spec': {'microtiming_ms': {
+                      'lead': {'global_offset': 12.5}, 'bass': {'global_offset': 37.5},
+                      'comp': {'global_offset': 25}}}}}
+        for name, role, ticks in [('texture', 'lead', 12), ('bassoon', 'lead', 12), ('comping', 'comping', 24)]:
+            with self.subTest(name=name):
+                ctx = self.package(name=name, track_programs={name: 4 if name == 'comping' else 0})
+                original = ctx.package.midi_path.read_bytes()
+                out = Orchestrator(config, self.root / 'role-cache').run(ctx, output_dir=self.root / name)
+                expressive = MidiEvents.load(out / 'score.expressive.mid')
+                self.assertEqual([(n.start, n.end) for n in expressive.notes],
+                                 [(ticks, 480 + ticks), (240 + ticks, 720 + ticks)])
+                diff = json.loads((out / 'score.expressive.mid.diff.json').read_text())
+                self.assertEqual([(r['role'], r['offset_ticks']) for r in diff['note_diffs']], [(role, ticks)] * 2)
+                index = json.loads((out / 'stems/role_index.json').read_text())['stems']
+                self.assertEqual([(r['source_track_index'], r['role']) for r in index], [(1, role)])
+                self.assertEqual(json.loads((out / 'render.json').read_text())['renderers'][0]['role'], role)
+                self.assertTrue(json.loads((out / 'score.reconciliation.json').read_text())['passed'])
+                self.assertEqual(ctx.package.midi_path.read_bytes(), original)
 
     def test_orchestrator_rejects_valid_replacement_until_context_is_reloaded(self) -> None:
         import shutil
