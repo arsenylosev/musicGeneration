@@ -82,10 +82,9 @@ controller fidelity, tuning measurement, or mastered/CLAP/FAD-scored audio.
 
 ## Recorded local preview check (2026-11-02)
 
-From scratch directory
-`/private/var/folders/85/56fj_6651qbfh0p8_wsy7xcw0000gn/T/opencode/imported-cli.8drK4f`,
-using the existing `musicgeneration-venv` (Python 3.12.12), a mido type-1 source
-contained a conductor (480 PPQN, 120 BPM, 4/4), bass (program 33/channel 0/note 45),
+From `$SCRATCH/imported-cli.8drK4f` (`SCRATCH` is the caller-owned external
+scratch parent), using the existing `musicgeneration-venv` (Python 3.12.12),
+a mido type-1 source contained a conductor (480 PPQN, 120 BPM, 4/4), bass (program 33/channel 0/note 45),
 and lead (program 80/channel 1/note 69), both velocity 100 and ticks 0–960.
 
 ```bash

@@ -61,3 +61,9 @@ class TestNativeReproductionDocs(unittest.TestCase):
                         result = run(invalid)
                         self.assertNotEqual(result.returncode, 0)
                         self.assertEqual(result.stdout, '', 'must not invoke Python with invalid paths')
+
+    def test_imported_preview_evidence_uses_portable_scratch_path(self):
+        text = (Path(__file__).resolve().parents[1] / 'docs/audio-imported-midi.md').read_text()
+        evidence = text.split('## Recorded local preview check', 1)[1]
+        self.assertNotRegex(evidence, r'/(?:private/var/folders|Users|home)/')
+        self.assertIn('$SCRATCH/', evidence)
