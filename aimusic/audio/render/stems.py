@@ -25,7 +25,7 @@ from aimusic.audio.render.registry import RenderRequest, ResolvedRenderer, rende
 from aimusic.audio.render import registry
 from aimusic.audio.render.simple_r import _peak_dbfs
 from aimusic.audio.render.stem_publication import pin_output
-from aimusic.audio.render.util import peak_normalize, render_frames, limit_peak
+from aimusic.audio.render.util import peak_normalize, render_frames, limit_peak, write_float_wav
 from aimusic.core.core_types import Score
 
 
@@ -92,7 +92,7 @@ def render_click(
     audio = peak_normalize(audio, peak_dbfs)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(out), audio.astype(np.float32), sample_rate, subtype="FLOAT")
+    write_float_wav(out, audio.astype(np.float32), sample_rate)
     return out
 
 
@@ -124,7 +124,7 @@ def rough_mix(
     mix, _ = limit_peak(mix, ceiling)
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(out), mix.astype(np.float32), sr, subtype="FLOAT")
+    write_float_wav(out, mix.astype(np.float32), sr)
     return out
 
 

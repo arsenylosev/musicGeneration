@@ -108,3 +108,26 @@ class TestAlignedMix(unittest.TestCase):
                              {'sample_rate': 0}, {'mix_peak': 1.1}, {'mix_peak': 0}):
                 with self.subTest(settings=settings), self.assertRaises(ValueError):
                     prepare_stem_render(source, config={'render': settings})
+
+    def test_float_wav_bytes_ignore_wall_clock_peak_timestamp_not_pcm(self):
+        from unittest.mock import patch
+        from aimusic.audio.render.util import write_float_wav
+        original_write = sf.write
+        with tempfile.TemporaryDirectory() as tmp:
+            hashes = []
+            for timestamp in (12345678, 87654321):
+                def stamped(path, data, rate, **kwargs):
+                    original_write(path, data, rate, **kwargs)
+                    payload = bytearray(Path(path).read_bytes())
+                    offset = payload.index(b'PEAK')
+                    payload[offset + 12:offset + 16] = timestamp.to_bytes(4, 'little')
+                    Path(path).write_bytes(payload)
+                path = Path(tmp) / f'{timestamp}.wav'
+                pcm = np.array([[.25, -.5], [.125, .375]], dtype=np.float32)
+                with patch.object(sf, 'write', side_effect=stamped):
+                    write_float_wav(path, pcm, 48000)
+                hashes.append(path.read_bytes())
+                actual, rate = sf.read(path)
+                np.testing.assert_array_equal(actual, pcm)
+                self.assertEqual(rate, 48000)
+            self.assertEqual(*hashes)

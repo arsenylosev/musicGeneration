@@ -1,10 +1,8 @@
-# Optional offline FluidSynth renderer (C6 partial)
+# Optional offline FluidSynth renderer
 
-Implemented scope: OpenSpec **7.1–7.3 only**. No native SoundFont render,
-12-EDO instrument listening approval, native timing benchmark, or audible tuning
-accuracy is claimed. Tasks 7.4/7.5 and MUS-34 acceptance remain open. The real-lane
-flag described in `audio-testing.md` is a future acceptance contract, not a test
-harness delivered here. Do not interpret mocked tests as native acceptance.
+Native 12-EDO verification is now available: see the opt-in contract and measured
+7.4 evidence in [audio-testing.md](audio-testing.md). Human listening (7.5) and
+MUS-34 acceptance remain open; do not interpret metrics as listening approval.
 
 ## Clean-room provenance and dependency review (2026-11-01)
 
@@ -133,8 +131,8 @@ f0/CLAP/FAD scoring, LUFS mastering, or subjective quality certification.
 
 ## Installation: Python, native library and asset are separate
 
-These are local setup instructions, **not commands executed or native success
-claimed by this change**. The lightweight lane only needs `.[audio,dev]`.
+These Windows/Linux instructions have not been executed here; the measured
+runtime below is macOS. The lightweight lane only needs `.[audio,dev]`.
 
 ### Linux (Debian/Ubuntu example)
 
@@ -175,10 +173,48 @@ install the unrelated PyPI package named `fluidsynth` instead of `pyfluidsynth`.
 
 `load_audio_config('listening')` selects FluidSynth and forbids simple fallback;
 use `paths.soundfont` in an explicit profile or `AIMUSIC_SOUNDFONT`. See
-[audio-config-skeleton.md](audio-config-skeleton.md) for precedence. The current generated-package CLI
-supports `--profile listening --no-validate-only`; output/SoundFont CLI extensions
-and the imported-MIDI CLI remain future C9 scope. Missing bindings/library/asset
+[audio-config-skeleton.md](audio-config-skeleton.md) for precedence. Both `render-audio` and `render-midi` support `--profile listening`, `--soundfont`,
+`--out` and `--no-validate-only`; see [demo commands](audio-demo-sources.md). Missing bindings/library/asset
 fail with setup guidance. Native execution defects never trigger a bridge.
 
-**No asset is selected or licensed here.** Obtain user approval before the native
-lane/listening tests (7.4/7.5); keep WAVs, SoundFonts and credentials untracked.
+The user approved the local-only GeneralUser GS asset below. Other assets still
+require explicit license review/approval. Keep WAVs, SoundFonts and credentials untracked.
+
+## Approved local-only asset / installed runtime (2026-11-02)
+
+- **GeneralUser GS 2.0.3**, author Chris (S. Christian) Collins / `mrbumpy409`.
+  Official repository: <https://github.com/mrbumpy409/GeneralUser-GS>.
+  Pinned commit: `684543d5e5efaef08d02be50dcda8d552478fa60`.
+  Filename: `GeneralUser-GS.sf2`; SHA-256:
+  `9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe`.
+- [License v2.0 at that commit](https://github.com/mrbumpy409/GeneralUser-GS/blob/684543d5e5efaef08d02be50dcda8d552478fa60/documentation/LICENSE.txt)
+  permits unrestricted private/commercial music creation, software-project use
+  and modification, and says all contained samples allow full music-production
+  use, including profit from recordings. **Caveat:** the author discloses historical
+  uncertainty about some samples' origins and relies on original suppliers'
+  rights information. Do not translate this into an unconditional redistribution
+  warranty. User approval is **local-only**; no SF2/sample/WAV is bundled here.
+- Measured on Apple **M4 Pro**, macOS **27.2 arm64**, Python **3.12.12**;
+  Homebrew FluidSynth/shared libfluidsynth **2.6.2**, pyfluidsynth **1.3.4**,
+  NumPy **2.5.4**, mido **1.3.3**, SoundFile **0.14.0**, libsndfile **1.2.2**.
+  Bindings were installed in the user's external virtual environment. On this
+  Homebrew installation, `HOMEBREW_PREFIX=/opt/homebrew` is needed for discovery.
+  These are versions actually queried by the native lane, not CLI-version guesses.
+
+macOS setup (separate from Linux/Windows above):
+
+```bash
+brew install fluidsynth             # native library, NOT a SoundFont
+python -m pip install -e '.[audio-render,dev]'
+export HOMEBREW_PREFIX="$(brew --prefix)"
+```
+
+No automatic asset installation. Store its absolute local path only in the
+external manifest described in [audio-testing.md](audio-testing.md).
+
+Cold-repeat verification found identical PCM but a changing libsndfile FLOAT-WAV
+`PEAK` timestamp. Owned published WAVs now canonicalize only that timestamp to
+zero, scanning RIFF chunk lengths/padding (not searching audio bytes). Samples,
+peak values and positions remain unchanged. Asset-free tests inject different
+wall times; the native lane checks all six cold-repeat and warm-restored WAVs
+byte-for-byte. Cross-platform/native-version byte identity is not promised.

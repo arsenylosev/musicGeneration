@@ -19,7 +19,7 @@ import soundfile as sf
 
 from aimusic.audio.config import normalize_routing
 from aimusic.audio.render import simple_r
-from aimusic.audio.render.util import limit_peak, render_frames
+from aimusic.audio.render.util import limit_peak, render_frames, write_float_wav
 from aimusic.audio.render import tuning
 
 
@@ -139,7 +139,7 @@ def render_request(request: RenderRequest, selected: ResolvedRenderer) -> Render
         samples = np.pad(samples, ((0, frames - len(samples)), (0, 0)))
     ceiling = float(request.config.get('render', {}).get('mix_peak', 0.95))
     samples, gain = limit_peak(samples, ceiling)
-    sf.write(path, samples, rate, subtype='FLOAT')
+    write_float_wav(path, samples, rate)
     backend = selected.backend
     result = RenderResult(path, file_digest(path), selected.requested_backend, backend.name,
                           selected.fallback_reason, backend.version, backend.capabilities,

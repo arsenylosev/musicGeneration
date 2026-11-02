@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 
@@ -41,3 +43,28 @@ def limit_peak(audio: np.ndarray, ceiling: float = 0.95) -> tuple[np.ndarray, fl
     peak = float(np.max(np.abs(audio))) if audio.size else 0.0
     gain = min(1.0, float(target) / peak) if peak else 1.0
     return (audio * gain).astype(np.float32), gain
+
+
+def write_float_wav(path: Path | str, audio: np.ndarray, sample_rate: int) -> None:
+    """Write owned FLOAT WAV, canonicalizing only libsndfile's PEAK timestamp.
+
+    RIFF chunks are length-delimited (including odd-byte padding); never search
+    PCM for marker bytes. PEAK v1 stores version, Unix timestamp, then per-channel
+    peak/position pairs. A zero timestamp is intentional, not render wall time.
+    """
+    import struct
+    import soundfile as sf
+    sf.write(path, audio, sample_rate, subtype='FLOAT', format='WAV')
+    with open(path, 'r+b') as stream:
+        header = stream.read(12)
+        if header[:4] != b'RIFF' or header[8:] != b'WAVE':
+            raise ValueError('Expected RIFF WAVE output')
+        end = struct.unpack('<I', header[4:8])[0] + 8
+        while stream.tell() < end:
+            kind, size = struct.unpack('<4sI', stream.read(8))
+            position = stream.tell()
+            if kind == b'PEAK':
+                if size < 8 or stream.read(4) != b'\x01\x00\x00\x00':
+                    raise ValueError('Unsupported WAV PEAK chunk')
+                stream.write(b'\x00' * 4)
+            stream.seek(position + size + size % 2)

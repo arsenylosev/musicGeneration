@@ -12,10 +12,10 @@ From `AUDIO_PIPELINE_ARCHITECTURE.pdf` §§8–9.
    cache, safety, and mocked-renderer tests with the CI-safe `simple` backend.
    This lane requires no FluidSynth installation, SoundFont, GPU, credentials,
    or network service.
-3. **Real FluidSynth (planned explicit opt-in; 7.4 not implemented):** set
+3. **Real FluidSynth (explicit opt-in):** set
    `AIMUSIC_RUN_FLUIDSYNTH_TESTS=1` and provide the approved SoundFont path and
-   SHA-256. Once explicitly selected, missing FluidSynth bindings/native
-   library/SoundFont are setup failures, not skips. This lane records native
+   SHA-256 via the manifest contract below. Once explicitly selected, missing
+   bindings/native library/SoundFont or provenance are setup failures, not skips. This lane records native
    versions, asset license/hash, signal metrics, tuning evidence, and elapsed
    time.
 
@@ -432,3 +432,76 @@ artifacts, and human listening review.
 | Invalid LLM groove specs | pydantic validate; reject-and-retry; measured templates override |
 | Scorer gaming | Hard floors; monotonicity tests; milestone human audits |
 | Rights / watermarks | Provenance manifest; MIDI-GPT flagged off by default |
+
+## Native opt-in manifest contract and 12-EDO evidence (2026-11-02)
+
+`tests/test_audio_fluidsynth_integration.py` skips **only** when
+`AIMUSIC_RUN_FLUIDSYNTH_TESTS` is not exactly `1`. Set
+`AIMUSIC_FLUIDSYNTH_MANIFEST` to an external UTF-8 JSON object. All fields below
+are required and nonempty; `license_approved` must be boolean true. The asset must
+be an absolute existing local file, and its actual bytes must match the lowercase
+64-digit SHA-256. Source commit must be a full lowercase commit hash. Source and
+license URLs must be HTTPS. Native/binding versions must match runtime queries.
+Missing binding/library/path/license/expected hash, modified asset bytes or wrong
+versions **fail** the selected lane, never skip. The manifest records the user's
+approval; it cannot independently establish legal ownership of samples.
+
+Example (replace only the local path with the already-approved external asset):
+
+```json
+{
+  "soundfont_path": "/absolute/local/path/GeneralUser-GS.sf2",
+  "soundfont_sha256": "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe",
+  "soundfont_name": "GeneralUser GS",
+  "soundfont_version": "2.0.3",
+  "source_url": "https://github.com/mrbumpy409/GeneralUser-GS",
+  "source_commit": "684543d5e5efaef08d02be50dcda8d552478fa60",
+  "license_url": "https://github.com/mrbumpy409/GeneralUser-GS/blob/684543d5e5efaef08d02be50dcda8d552478fa60/documentation/LICENSE.txt",
+  "license_summary": "Private/commercial music and software-project use/modification permitted; historical sample-origin uncertainty disclosed; local-only approval",
+  "license_approved": true,
+  "native_version": "2.6.2",
+  "binding_version": "1.3.4"
+}
+```
+
+```bash
+# Activated audio-render/dev venv. No download, service key or GPU.
+export AIMUSIC_RUN_FLUIDSYNTH_TESTS=1
+export AIMUSIC_FLUIDSYNTH_MANIFEST="$LOCAL_ASSETS/native-manifest.json"
+export AIMUSIC_FLUIDSYNTH_ARTIFACTS="$LOCAL_OUTPUTS"  # existing external directory
+python -m pytest tests/test_audio_fluidsynth_integration.py -q -s
+# Default/asset-free lane, including subprocess proof of fail-closed opt-in:
+unset AIMUSIC_RUN_FLUIDSYNTH_TESTS AIMUSIC_FLUIDSYNTH_MANIFEST AIMUSIC_SOUNDFONT
+python -m pytest tests/test_audio_native_contract.py tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q
+```
+
+`AIMUSIC_FLUIDSYNTH_ARTIFACTS` is optional (defaults to OS temp); each run prints a
+fresh `fluidsynth-evidence-*` directory and retains source/expected JSON, actual
+asset manifest, config/backend provenance, original/expressive/isolated MIDI,
+WAVs, separate caches and reports. No machine-specific path is tracked.
+
+First passing native checkpoint: `fluidsynth-evidence-wnd_i84v` in local scratch.
+All **780000 frames / 48 kHz**: 16-second eight-bar horizon + fixed **0.25 s** tail.
+Roles/programs/channels/counts match `demo_sources fixture-12` exactly:
+drums 0/9/96, bass 33/0/16, comping 0/1/48, lead 80/2/64 (zero-based).
+Source and isolated note endpoints/velocities match; the no-op expression path is
+not claimed as audible groove improvement. Click is generated but excluded by an
+exact reconstructed-mix assertion. Every designated active window passes >1e-5;
+all samples finite and peaks <=0.95.
+
+| Signal | RMS, 0.1–0.4 s | Peak |
+|---|---:|---:|
+| Drums | 0.000967488 | 0.064514160 |
+| Bass | 0.014692156 | 0.041717529 |
+| Comping | 0.012433238 | 0.054138184 |
+| Lead | 0.010266098 | 0.033386230 |
+| Rough mix | 0.021610964 | 0.118316650 |
+
+Cold **0.931 s**, independent cold-repeat **0.852 s**, warm **0.354 s**;
+all six WAVs byte-identical across runs. Both cold runs miss expression/render
+caches, warm hits both. The test retains timings and fails above **60 s**, rather
+than relaxing the target. Native/binding/asset provenance is checked on each run.
+
+**7.5 remains open**: samples are available for listening, not reviewed by a human.
+No MUS-34 completion, role recognizability, mastered quality, CLAP/FAD, or broad
+polyphonic tuning certification follows from these signal measurements.
