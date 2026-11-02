@@ -4,8 +4,9 @@
 CI-safe deterministic spine (`from_score`, groove, simple render, orchestrator,
 optional m2a bridge). Clean-room FluidSynth dispatch is implemented behind
 `[audio-render]`; [four pinned native demos](audio-demo-sources.md) are measured
-locally and [accepted as rough demos](audio-listening-review.md). Explicit human
-groove-on/off review, final integration review and generative stages remain open.
+locally and [accepted as rough demos, including human timing review](audio-listening-review.md).
+No aesthetic groove improvement is claimed. Final integration review and
+generative stages remain open.
 **Canonical design:** sibling repo `midi2audio_generative/AUDIO_PIPELINE_ARCHITECTURE.pdf`
 (*From BeatState to Master*, v0.1). This document is the in-repo product digest.
 

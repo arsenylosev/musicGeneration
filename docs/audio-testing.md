@@ -5,8 +5,10 @@ From `AUDIO_PIPELINE_ARCHITECTURE.pdf` §§8–9.
 **Current:** all four pinned native workflows are locally reproduced; see
 [10.3 / 10.4 / 11.2 evidence](#four-native-listening-workflows-103--104--112).
 The later [human rough-demo acceptance and portable report](audio-listening-review.md)
-complete **7.5 / 9.4**; **11.3 / 11.4** remain open. Earlier checkpoints below are
-historical measurements, not current blockers or human acceptance.
+complete **7.5 / 9.4 / 11.3**; only **11.4** remains open. The timing-pair review
+records no perceived difference and “No defects heard”, not aesthetic groove
+improvement. Earlier checkpoints below are historical measurements, not current
+blockers or human acceptance.
 
 ## Testing strategy
 

@@ -6,8 +6,9 @@ approved GeneralUser GS 2.0.3 / FluidSynth 2.6.2 / pyfluidsynth 1.3.4 lane.
 [commands/results](audio-testing.md#four-native-listening-workflows-103--104--112)
 cover OpenSpec **10.3, 10.4 and 11.2**. The user subsequently
 [accepted the four rough demos](audio-listening-review.md) on 2026-11-02.
-**7.5 / 9.4 are complete; 11.3 / 11.4 remain open** (explicit human groove-on/off
-comparison and final integration review). No mastered-quality claim is made.
+**7.5 / 9.4 / 11.3 are complete; 11.4 remains open** (final integration review).
+The separately named timing pair was reviewed with no perceived difference and
+“No defects heard”; no aesthetic groove improvement or mastered-quality claim is made.
 
 ## Exactly four sources
 

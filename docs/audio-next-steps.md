@@ -18,7 +18,8 @@ Ordered backlog. Prefer one P0/P1 item per session. Full roadmap:
 - [x] Port M1 CI-safe remainder: groove apply, simple render, orchestrator + m2a bridge
 - [x] Human rough-demo acceptance of the implemented clean-room FluidSynth backend
   (`[audio-render]`): [all four embedded players worked; rough demos accepted](audio-listening-review.md).
-  Explicit groove-on/off comparison and final integration review remain open.
+  Human timing comparison is recorded (“No defects heard”); no aesthetic groove
+  improvement claimed. Final integration review remains open.
 - [ ] CI reconcile on fixtures
 
 ## P2 — Safe generative loop

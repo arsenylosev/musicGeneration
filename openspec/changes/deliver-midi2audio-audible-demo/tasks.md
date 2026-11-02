@@ -123,9 +123,14 @@ all four workflows; see `docs/audio-native-listening-evidence.json` and
 `docs/audio-testing.md` (four native workflows). That checkpoint claimed no human
 listening approval. The later 2026-11-02 [human acceptance](../../../docs/audio-listening-review.md)
 completes **7.5 / 9.4**: all four embedded players worked and rough demos were
-accepted, with no specific audible defect reported. **11.3 remains open** because
-an explicit human groove-on/off comparison is not recorded; **11.4 stays open**
-as requested. MUS-35 remains partial and Linear is unchanged.
+accepted, with no specific audible defect reported. The subsequent named timing
+pair review on the same date completes **11.3**: the user could not perceive a
+difference between `timing_original.wav` and `timing_shifted_12_5ms.wav`, then
+explicitly reported “No defects heard” when asked about clipping, stuck/lost
+notes, truncation or broken timing. A uniform 12.5 ms shift may be imperceptible;
+no aesthetic groove improvement is claimed. **11.4 stays open** as requested.
+The demos remain rough and dry, not mastered, with no CLAP/FAD scores and
+polyphonic f0 unmeasured. MUS-35 remains partial and Linear is unchanged.
 
 ## 11. Final cross-lane verification — commit C10 / review gate D
 
@@ -135,7 +140,7 @@ Scope: integration evidence and any integration-only harness adjustments, not de
 
 - [x] 11.1 Re-run core/architecture, all lightweight audio, lint/type checks and clean-wheel commands from group 1/3 in an asset-free environment; verify no new failures or quarantine violations and record separately any unchanged baseline failures.
 - [x] 11.2 Reproduce all four examples in the pinned native lane, recording signal metrics, reconciliation, controlled tuning, provenance, cache equivalence and elapsed time; verify unsupported tuning still fails and no skipped native test is presented as acceptance evidence.
-- [ ] 11.3 Obtain human listening review of recognizable 12-EDO roles, groove on/off timing and the supported 19-EDO examples; record findings and the explicit limitation that these are rough audible demos, not mastered/CLAP/FAD-scored production audio.
+- [x] 11.3 Obtain human listening review of recognizable 12-EDO roles, groove on/off timing and the supported 19-EDO examples; record findings and the explicit limitation that these are rough audible demos, not mastered/CLAP/FAD-scored production audio.
 - [ ] 11.4 Review the final diff and per-capability acceptance mapping, confirm no unrelated user files or prohibited assets are staged, and commit only the integration evidence/harness changes as C10; present MUS-34 completion evidence, partial MUS-35 status and remaining follow-up scope without changing tickets or opening PRs.
 
 ## Workflow follow-up

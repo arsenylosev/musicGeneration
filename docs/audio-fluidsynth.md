@@ -4,7 +4,9 @@ All four 12/19-EDO workflows now have [pinned local native evidence](audio-demo-
 including planner reconciliation and controlled f0. The user
 [accepted the four rough demos](audio-listening-review.md) on 2026-11-02; task 7.5
 is complete and MUS-34 completion can be proposed. This is separate from metrics;
-MUS-35 stays partial and explicit groove-on/off human review remains open.
+MUS-35 stays partial. The separate human timing review is now recorded with
+“No defects heard”; no aesthetic groove improvement is claimed. Final review
+(task 11.4) remains open.
 
 ## Clean-room provenance and dependency review (2026-11-01)
 
