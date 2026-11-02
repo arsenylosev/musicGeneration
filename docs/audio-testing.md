@@ -610,27 +610,96 @@ remain local-only approval, not a redistribution warranty.
 
 ### Reproduce and locate the listening set
 
-Use the existing venv and approved manifest; do not download assets. POSIX shell,
-from the checkout (replace `$SCRATCH` only if using a different external root):
+Use the existing venv and approved manifest; do not download assets. From the
+checkout in a POSIX shell (WSL on Windows), first set these **caller-owned absolute
+paths**: `SCRATCH` to an existing external output directory, `PYTHON` to the
+venv's Python executable, and `AIMUSIC_FLUIDSYNTH_MANIFEST` to the approved JSON
+manifest. For an already activated venv, `PYTHON="$(python -c 'import sys; print(sys.executable)')"`
+is a portable derivation. No particular venv name or directory layout is assumed.
 
 ```bash
-SCRATCH=/private/var/folders/85/56fj_6651qbfh0p8_wsy7xcw0000gn/T/opencode
-. "$SCRATCH/musicgeneration-venv/bin/activate"
-export HOMEBREW_PREFIX=/opt/homebrew
+set -eu
+: "${SCRATCH:?Set an absolute existing external output directory}"
+: "${PYTHON:?Set the absolute path to the audio-render venv Python executable}"
+: "${AIMUSIC_FLUIDSYNTH_MANIFEST:?Set the absolute approved manifest path}"
+for path in "$SCRATCH" "$PYTHON" "$AIMUSIC_FLUIDSYNTH_MANIFEST"; do
+  case "$path" in /*) ;; *) echo "Absolute path required: $path" >&2; exit 1 ;; esac
+done
+[ -d "$SCRATCH" ] && [ -x "$PYTHON" ] && [ -f "$AIMUSIC_FLUIDSYNTH_MANIFEST" ] || {
+  echo 'SCRATCH, Python executable and manifest must already exist' >&2; exit 1;
+}
+# Optional Homebrew library discovery; never assume an Apple Silicon prefix.
+if command -v brew >/dev/null 2>&1; then
+  HOMEBREW_PREFIX="$(brew --prefix)"
+  export HOMEBREW_PREFIX
+fi
 export AIMUSIC_RUN_FLUIDSYNTH_TESTS=1
-export AIMUSIC_FLUIDSYNTH_MANIFEST="$SCRATCH/generaluser-native-manifest.json"
+export AIMUSIC_FLUIDSYNTH_MANIFEST
 export AIMUSIC_FLUIDSYNTH_ARTIFACTS="$SCRATCH"
-python -m pytest tests/test_audio_fluidsynth_integration.py -q -s
+"$PYTHON" -m pytest tests/test_audio_fluidsynth_integration.py -q -s
 ```
 
-This exact native invocation passed **5 tests, no skips, 10.29 s**. The test runs
-fresh source-generator subprocesses and the real `Orchestrator` (no fake renderer).
-Its exact source argv/logs are retained in `four-workflows/evidence.json` and
-`command-*.log`. It uses the versioned `listening` profile plus the approved asset
-path and explicit empty groove spec. Render elapsed times exclude generation and
-measurement. Effective config, dry native settings and code/dependency hashes are
-retained in every `render.json`. `runtime.json` records exact invocation/environment,
-hardware and native/binding/license-file paths/hashes; `pip-freeze.txt` is local.
+The recorded native invocation passed **5 tests, no skips, 10.29 s**. The test
+runs fresh source-generator subprocesses and the real `Orchestrator` (no fake
+renderer). Its exact source argv/logs are retained in `four-workflows/evidence.json`
+and `command-*.log`. It uses the versioned `listening` profile plus the approved
+asset path and explicit empty groove spec. Render elapsed times exclude generation
+and measurement. Effective config, dry native settings and code/dependency hashes
+are retained in every `render.json`. Actual author-machine paths remain only in
+external evidence, not these reproduction commands.
+
+#### Supplemental runtime capture (after a passing native run)
+
+The test does **not** generate `runtime.json` or `pip-freeze.txt`. Run the following
+separately, in the same environment and checkout. Set `EVIDENCE` to the **absolute
+fresh directory printed by the test**, not the scratch parent. Set
+`FLUIDSYNTH_LIBRARY` to the absolute shared-library file used by your installation
+(not the CLI executable). This is a caller-identified binary path for hashing;
+version verification alone cannot prove which of two same-version binaries loaded.
+The snippet records platform/CPU information (additional hardware fields on macOS),
+binding/library/license bytes, asset provenance and invocation. Files are created
+exclusively: existing evidence is never overwritten. Keep both files external.
+
+```bash
+set -eu
+: "${PYTHON:?Use the same venv Python as the native run}"
+: "${EVIDENCE:?Set the absolute fresh evidence directory printed by the test}"
+: "${FLUIDSYNTH_LIBRARY:?Set the absolute installed shared-library file path}"
+"$PYTHON" - "$EVIDENCE" "$FLUIDSYNTH_LIBRARY" <<'PY'
+import json, os, platform, subprocess, sys
+from pathlib import Path
+from aimusic.audio.render import fluidsynth_r
+from aimusic.audio.render.registry import file_digest
+from tests.audio_native_support import verify_native_runtime
+root, native = map(Path, sys.argv[1:])
+assert root.is_absolute() and root.is_dir()
+assert native.is_absolute() and native.is_file()
+assert not any((root / name).exists() for name in ('runtime.json', 'pip-freeze.txt'))
+asset = json.loads((root / 'asset.json').read_text())
+evidence = json.loads((root / 'four-workflows/evidence.json').read_text())
+assert evidence['checks_passed'] and evidence['runtime'] == verify_native_runtime(asset)
+assert file_digest(Path(asset['soundfont_path'])) == asset['soundfont_sha256']
+license_path = Path(asset['soundfont_path']).with_name('LICENSE.txt')
+binding = Path(fluidsynth_r.load_binding().__file__)
+hardware = dict(machine=platform.machine(), processor=platform.processor(), logical_cpus=os.cpu_count())
+if sys.platform == 'darwin':
+    hardware.update({k: subprocess.check_output(['sysctl', '-n', k], text=True).strip()
+                     for k in ('machdep.cpu.brand_string', 'hw.ncpu', 'hw.memsize')})
+data = dict(python_executable=sys.executable, python_version=sys.version, platform=platform.platform(),
+            hardware=hardware, asset=asset, native_versions=evidence['runtime'],
+            runtime_files_sha256={str(p): file_digest(p) for p in (binding, native, license_path)},
+            git_commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+            native_command=[sys.executable, '-m', 'pytest', 'tests/test_audio_fluidsynth_integration.py', '-q', '-s'],
+            env={k: os.environ.get(k) for k in ('HOMEBREW_PREFIX', 'AIMUSIC_RUN_FLUIDSYNTH_TESTS',
+                 'AIMUSIC_FLUIDSYNTH_MANIFEST', 'AIMUSIC_FLUIDSYNTH_ARTIFACTS')})
+freeze = subprocess.check_output([sys.executable, '-m', 'pip', 'freeze'])
+with (root / 'runtime.json').open('x') as stream:
+    json.dump(data, stream, indent=2, allow_nan=False)
+with (root / 'pip-freeze.txt').open('xb') as stream:
+    stream.write(freeze)
+PY
+```
+
 The earlier [CLI commands](audio-demo-sources.md#listening-commands-approved-native-prerequisites-required)
 remain available for individual renders; the harness adds verified cache evidence.
 
