@@ -1,7 +1,9 @@
 """Common render horizon and bounded, attenuation-only rough mixing."""
 from __future__ import annotations
 
+import io
 import json
+import struct
 import tempfile
 import unittest
 from dataclasses import replace
@@ -131,3 +133,37 @@ class TestAlignedMix(unittest.TestCase):
                 np.testing.assert_array_equal(actual, pcm)
                 self.assertEqual(rate, 48000)
             self.assertEqual(*hashes)
+
+    def test_peak_normalization_walks_odd_chunks_without_touching_pcm_markers(self):
+        from unittest.mock import patch
+        from aimusic.audio.render.util import write_float_wav
+
+        # Finite FLOAT samples whose bytes also impersonate a PEAK v1 chunk.
+        pcm_bytes = b'PEAK' + struct.pack('<III', 16, 1, 0x12345678)
+        pcm = np.frombuffer(pcm_bytes, dtype='<f4')
+        fmt = b'fmt ' + struct.pack('<IHHIIHH', 16, 3, 1, 48000, 192000, 4, 32)
+        fact = b'fact' + struct.pack('<II', 4, len(pcm))
+        ancillary = b'JUNK' + struct.pack('<I', 3) + b'odd\x00'
+        data = b'data' + struct.pack('<I', len(pcm_bytes)) + pcm_bytes
+        peak = b'PEAK' + struct.pack('<IIIfI', 16, 1, 0x12345678, float(np.max(np.abs(pcm))), 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            for peak_after_data in (False, True):
+                with self.subTest(peak_after_data=peak_after_data):
+                    # Exercise PCM markers on either side of the real chunk.
+                    prefix = b'WAVE' + fmt + fact + ancillary + (data if peak_after_data else b'')
+                    body = prefix + peak + (b'' if peak_after_data else data)
+                    before = b'RIFF' + struct.pack('<I', len(body)) + body
+                    timestamp_offset = 8 + len(prefix) + 12  # Known from construction, never byte-search.
+                    decoded, rate = sf.read(io.BytesIO(before), dtype='float32')
+                    np.testing.assert_array_equal(decoded, pcm)
+                    self.assertEqual(rate, 48000)
+                    path = Path(tmp) / 'odd-chunks.wav'
+                    with patch.object(sf, 'write', side_effect=lambda output, *args, **kwargs: Path(output).write_bytes(before)):
+                        write_float_wav(path, pcm, 48000)
+                    after = path.read_bytes()
+                    # Full byte equality protects chunk sizes, padding, peak values/positions and PCM.
+                    expected = before[:timestamp_offset] + b'\x00' * 4 + before[timestamp_offset + 4:]
+                    self.assertEqual(after, expected)
+                    decoded, rate = sf.read(path, dtype='float32')
+                    np.testing.assert_array_equal(decoded, pcm)
+                    self.assertEqual(rate, 48000)

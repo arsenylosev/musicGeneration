@@ -73,7 +73,7 @@ class TestChannelPitch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             asset = Path(tmp) / 'fake.sf2'
             asset.write_bytes(b'fake for probe only')
-            for version, supported in [('2.6.2', True), ('2.4.6', False)]:
+            for version, supported in [('2.6.2', True), ('2.4.6', False), ('2.6.3', False), ('3.0.0', False)]:
                 with self.subTest(version=version), patch.object(fluidsynth_r, 'load_binding'), \
                         patch.object(fluidsynth_r, 'versions', return_value=(('libfluidsynth', version), ('pyfluidsynth', '1.3.4'))):
                     config = {'render': {'backend': 'fluidsynth'}}
@@ -90,6 +90,28 @@ class TestChannelPitch(unittest.TestCase):
                 with self.assertRaises(registry.UnsupportedTuning):
                     registry.resolve_renderer('lead', config={'render': {'backend': 'fluidsynth', 'allow_simple_fallback': True}},
                                               soundfont=asset, tuning='channel_pitch')
+
+    def test_only_exact_binding_version_can_promote_channel_pitch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            asset = Path(tmp) / 'fake.sf2'
+            asset.write_bytes(b'fake for probe only')
+            for binding_version in ('1.3.4', '1.3.3', '1.3.5', '2.0.0', '1.3.4.post1', '1.3.4.dev1'):
+                for fallback in (False, True):
+                    with self.subTest(binding=binding_version, fallback=fallback), \
+                            patch.object(fluidsynth_r, 'version', return_value=binding_version), \
+                            patch.object(fluidsynth_r.importlib, 'import_module'), \
+                            patch.object(fluidsynth_r, 'versions', return_value=(
+                                ('libfluidsynth', '2.6.2'), ('pyfluidsynth', binding_version))):
+                        # Keep load_binding real: its exact pin is part of the capability boundary.
+                        config = {'render': {'backend': 'fluidsynth', 'allow_simple_fallback': fallback}}
+                        if binding_version == '1.3.4':
+                            choice = registry.resolve_renderer('lead', config=config, soundfont=asset, tuning='channel_pitch')
+                            self.assertEqual(choice.backend.name, 'fluidsynth')
+                            self.assertIn('channel_pitch', choice.backend.capabilities.tuning_modes)
+                        else:
+                            error = registry.UnsupportedTuning if fallback else registry.MissingRendererResource
+                            with self.assertRaises(error):
+                                registry.resolve_renderer('lead', config=config, soundfont=asset, tuning='channel_pitch')
 
     def test_invalid_native_subset_rejects_before_groove_cache_or_publication(self):
         from aimusic.audio.orchestrator import Orchestrator
