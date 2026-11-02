@@ -4,8 +4,10 @@
 approved GeneralUser GS 2.0.3 / FluidSynth 2.6.2 / pyfluidsynth 1.3.4 lane.
 [Machine-readable evidence](audio-native-listening-evidence.json) and
 [commands/results](audio-testing.md#four-native-listening-workflows-103--104--112)
-cover OpenSpec **10.3, 10.4 and 11.2**. This is not human acceptance:
-**7.5, 9.4, 11.3 and 11.4 remain unchecked**. No mastered-quality claim is made.
+cover OpenSpec **10.3, 10.4 and 11.2**. The user subsequently
+[accepted the four rough demos](audio-listening-review.md) on 2026-11-02.
+**7.5 / 9.4 are complete; 11.3 / 11.4 remain open** (explicit human groove-on/off
+comparison and final integration review). No mastered-quality claim is made.
 
 ## Exactly four sources
 
@@ -141,7 +143,11 @@ provenance and signal checks. The generated passage uses its **RenderPackage**,
 not the inferred MIDI route. Reference f0 is checked against independent original
 Hz; multitrack f0 is **unmeasured**, with event pitch integrity <=1 cent. The test
 also retains separate reference groove-on/off and rejected flattened comparisons.
-These are measured native results, **not human listening acceptance**.
+These measured native results are separate from the later
+[human rough-demo acceptance](audio-listening-review.md).
+
+For the single-page embedded player command (all four mixes; no relative WAV
+URLs), see [self-contained listening review](audio-listening-review.md#reproduce-the-portable-page-no-native-dependency-needed).
 
 ## Supported source-event subset and independent expectations
 
@@ -212,7 +218,8 @@ for a controlled groove-on run, and with deliberately flattened audio using the
   at matched gain; record reviewer/date/findings and any asset-specific failure.
 - Preview is additive sine audio, **not instrument recognizability**. Full rhythm
   F-score **>=0.85** and notes F1 **>=0.70** are future scorer floors, **not measured
-  here**. No CLAP/FAD, mastering/LUFS, production quality or human approval claimed.
+  here**. No CLAP/FAD, mastering/LUFS or production quality is claimed; the
+  later human acceptance is bounded as recorded in [the listening review](audio-listening-review.md).
 
 ## Local verification / artifact policy
 
@@ -273,4 +280,5 @@ Local logs: `demo-sources-red.log`, `demo-sources-mutation.log`,
 parent. Preview measurements are in `listening-sources.zR6Ojr/evidence.json` there.
 These historical outputs are **simple** only and did not complete native tasks.
 The later native summary above supersedes the former four-workflow blocker;
-human review and MUS-34/MUS-35 completion are still not claimed.
+the later [human review](audio-listening-review.md) supports proposing MUS-34
+completion. MUS-35 is still partial, and tickets remain unchanged.

@@ -48,3 +48,18 @@ Reproduction documentation SHALL distinguish Python bindings, native FluidSynth 
 #### Scenario: Delivery review
 - **WHEN** the demo is submitted for review
 - **THEN** versioned changes contain fixture sources, profiles, tests, expected metrics and reproduction instructions while licensed rendering assets and generated listening files remain outside the commit
+
+### Requirement: Self-contained four-mix listening review
+An audio-owned offline command SHALL produce deterministic self-contained HTML from four verified workflow outputs or their evidence root. It SHALL embed four byte-identical WAVs in fixed order, escape text, include labels/descriptions/checklist, validate bounded inputs and refuse output overwrite. Reports SHALL NOT infer human approval or include external assets, paths, manifests, credentials, caches or network dependencies.
+
+#### Scenario: Portable review without relative media URLs
+- **WHEN** the four verified mixes are supplied to the module command, including from an installed wheel outside the checkout
+- **THEN** the page contains exactly four `data:audio/wav;base64,` controls for `stems/rough_mix.wav`, in fixture/generated/reference/multitrack order, whose decoded bytes equal the inputs, with no external resource requests
+
+#### Scenario: Bounded validated inputs and exclusive output
+- **WHEN** an input is missing, nonregular, unreadable, not an admitted WAV or the total raw WAV size exceeds 32 MiB, or the output already exists including as a symlink
+- **THEN** generation fails without overwriting any existing file; ancillary WAV text metadata is rejected rather than embedded, and valid inputs are read within the total byte cap
+
+#### Scenario: Historical human acceptance is not an automated gate
+- **WHEN** a new listening page or native run is generated after an earlier human acceptance
+- **THEN** the new report does not claim that the earlier acceptance applies to new audio, and recorded findings continue to distinguish rough-demo listening, controlled mono measurements, unmeasured polyphonic f0 and unconfirmed groove comparisons

@@ -81,7 +81,34 @@ class TestAudioWheel(unittest.TestCase):
                 assert not any(name in sys.modules for name in (
                     'fluidsynth', 'pretty_midi', 'soundfile', 'torch',
                 ))
-                print('installed wheel profiles OK')
+                # The report module works with stdlib only, from the installed
+                # wheel under -I -S (no audio/native dependencies or checkout).
+                import base64
+                from html.parser import HTMLParser
+                import runpy
+                import wave
+                names = ('fixture-12', 'generated-12', 'reference-19', 'multitrack-19')
+                expected = []
+                for i, name in enumerate(names):
+                    path = Path('four-workflows', name, 'cold', 'stems', 'rough_mix.wav')
+                    path.parent.mkdir(parents=True)
+                    with wave.open(str(path), 'wb') as stream:
+                        stream.setparams((1, 2, 8000, 0, 'NONE', 'none'))
+                        stream.writeframes(bytes([i, 0]) * 80)
+                    expected.append(path.read_bytes())
+                sys.argv = ['listening_review', '--evidence-root', '.', '--out', 'review.html']
+                runpy.run_module('aimusic.audio.listening_review', run_name='__main__')
+                class Players(HTMLParser):
+                    sources = []
+                    def handle_starttag(self, tag, attrs):
+                        if tag == 'audio':
+                            self.sources.append(dict(attrs)['src'])
+                players = Players()
+                players.feed(Path('review.html').read_text())
+                assert len(players.sources) == 4
+                assert [base64.b64decode(s.split(',', 1)[1], validate=True)
+                        for s in players.sources] == expected
+                print('installed wheel profiles and self-contained listening review OK')
                 """), str(installed), str(REPO_ROOT))
             # Exercise the installed module command and real preview CLI with
             # host audio dependencies, still without checkout/editable aimusic.

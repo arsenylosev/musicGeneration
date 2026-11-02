@@ -78,7 +78,7 @@ Files: new `audio/render/fluidsynth_r.py`, registry adapter, `pyproject.toml`, p
 - [x] 7.2 Implement offline event-to-sample dispatch with native lifecycle cleanup, programs/banks, drums, sustain and pitch-wheel/RPN handling; verify mocked `tests/test_audio_fluidsynth.py` checks call order, tempo-map timing, resource cleanup and errors without native assets.
 - [x] 7.3 Align frame counts to one configured horizon/release tail and implement deterministic mix headroom; verify stem/mix tests cover tail, finiteness, 0.95 default peak ceiling, active-window RMS >1e-5, click exclusion and preservation of silent tracks.
 - [x] 7.4 Add opt-in `tests/test_audio_fluidsynth_integration.py` with a pinned local SoundFont hash/version record; verify an explicitly requested lane fails missing prerequisites, then run the eight-bar 12-EDO fixture checking roles/programs, sample rate, equal frames, RMS/peaks, cold-repeat/warm-cache evidence and elapsed time against the ~60-second target.
-- [ ] 7.5 Document Python/native/asset installation separately for Windows and Linux and record the asset license; run all lightweight checks without the native asset, present 12-EDO stems/mix for human listening, and commit C6 only with evidence sufficient to propose MUS-34 completion (do not update Linear automatically).
+- [x] 7.5 Document Python/native/asset installation separately for Windows and Linux and record the asset license; run all lightweight checks without the native asset, present 12-EDO stems/mix for human listening, and commit C6 only with evidence sufficient to propose MUS-34 completion (do not update Linear automatically).
 
 ## 8. Supported tuning capability enforcement — commit C7
 
@@ -99,7 +99,7 @@ Files: new `audio/scoring/tuning_check.py`, controlled-tone source/expected-freq
 - [x] 9.1 Implement deterministic monophonic-window f0 analysis and structured expected/measured/coverage reports; verify new `tests/test_audio_tuning_check.py` with synthetic exact, detuned, silent, insufficient-confidence and percussion cases, without transcription/model dependencies.
 - [x] 9.2 Enforce controlled per-tone <=5-cent acceptance and default mean/P95 <=15-cent hard floors, honoring stricter configured limits; verify boundary tests, flattened-12-TET corruption and missing-evidence rejection use original targets rather than inferring new targets from the bad output.
 - [x] 9.3 Run native dry 19-EDO reference tones through groove-disabled and groove-enabled paths; verify intended frequency windows pass and a deliberately flattened version fails, record asset/runtime hashes, and label polyphonic frequency accuracy unmeasured.
-- [ ] 9.4 Document evidence limits and remaining MUS-35 Scala/helpers/diffusion-gating work; present reports and controlled listening samples for human review and commit C8, explicitly leaving MUS-35 partially delivered and later blocking relations intact.
+- [x] 9.4 Document evidence limits and remaining MUS-35 Scala/helpers/diffusion-gating work; present reports and controlled listening samples for human review and commit C8, explicitly leaving MUS-35 partially delivered and later blocking relations intact.
 
 ## 10. Imported MIDI and reproducible CLI examples — commit C9
 
@@ -120,8 +120,12 @@ exclusive output publication, real 12-EDO preview stems/mixes and installed-whee
 commands. That checkpoint left **10.3/10.4** open for native evidence. The later
 approved GeneralUser GS 2.0.3 / FluidSynth 2.6.2 / binding 1.3.4 run now retains
 all four workflows; see `docs/audio-native-listening-evidence.json` and
-`docs/audio-testing.md` (four native workflows). No human listening approval is
-claimed; **7.5, 9.4, 11.3 and 11.4 remain open**, with Linear unchanged.
+`docs/audio-testing.md` (four native workflows). That checkpoint claimed no human
+listening approval. The later 2026-11-02 [human acceptance](../../../docs/audio-listening-review.md)
+completes **7.5 / 9.4**: all four embedded players worked and rough demos were
+accepted, with no specific audible defect reported. **11.3 remains open** because
+an explicit human groove-on/off comparison is not recorded; **11.4 stays open**
+as requested. MUS-35 remains partial and Linear is unchanged.
 
 ## 11. Final cross-lane verification — commit C10 / review gate D
 

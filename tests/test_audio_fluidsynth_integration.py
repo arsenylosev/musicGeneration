@@ -426,5 +426,17 @@ class TestFluidSynthIntegration(unittest.TestCase):
         self.assertFalse(list((root / 'mts-cache').rglob('cache_manifest.json')))
         evidence['mts'] = {'rejected': True, 'successful_outputs': [], 'diagnostic': str(failure.exception)}
         self.assertEqual(len(evidence['workflows']), 4)
+        from aimusic.audio.listening_review import write_listening_review
+        from tests.test_audio_listening_review import parse_review
+        import base64
+        outputs = {name: root / name / 'cold' for name in evidence['workflows']}
+        page = write_listening_review(outputs, self.root / 'listening-review-embedded.html')
+        players = [attrs for tag, attrs in parse_review(page).tags if tag == 'audio']
+        self.assertEqual(len(players), 4)
+        for attrs, out in zip(players, outputs.values()):
+            self.assertEqual(base64.b64decode(attrs['src'].split(',', 1)[1], validate=True),
+                             (out / 'stems/rough_mix.wav').read_bytes())
+        evidence['listening_review'] = {'path_from_evidence_root': page.name, 'sha256': file_digest(page),
+                                        'players': 4, 'embedded_wavs_byte_identical': True}
         evidence['checks_passed'] = True  # Published only after every assertion above passes.
         (root / 'evidence.json').write_text(json.dumps(evidence, indent=2, allow_nan=False))

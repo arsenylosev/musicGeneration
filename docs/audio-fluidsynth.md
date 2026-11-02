@@ -1,8 +1,10 @@
 # Optional offline FluidSynth renderer
 
 All four 12/19-EDO workflows now have [pinned local native evidence](audio-demo-sources.md),
-including planner reconciliation and controlled f0. Human listening (7.5) and
-MUS-34 acceptance remain open; do not interpret metrics as listening approval.
+including planner reconciliation and controlled f0. The user
+[accepted the four rough demos](audio-listening-review.md) on 2026-11-02; task 7.5
+is complete and MUS-34 completion can be proposed. This is separate from metrics;
+MUS-35 stays partial and explicit groove-on/off human review remains open.
 
 ## Clean-room provenance and dependency review (2026-11-01)
 

@@ -16,8 +16,9 @@ Ordered backlog. Prefer one P0/P1 item per session. Full roadmap:
 - [x] CLI `render-audio` with lazy import; validate-only default in PR2
 - [x] Native `from_score` loader; prefer planner `structure.json`
 - [x] Port M1 CI-safe remainder: groove apply, simple render, orchestrator + m2a bridge
-- [ ] Human acceptance of the implemented clean-room FluidSynth backend (`[audio-render]`);
-  [four local native demos](audio-demo-sources.md) are measured, not human-approved.
+- [x] Human rough-demo acceptance of the implemented clean-room FluidSynth backend
+  (`[audio-render]`): [all four embedded players worked; rough demos accepted](audio-listening-review.md).
+  Explicit groove-on/off comparison and final integration review remain open.
 - [ ] CI reconcile on fixtures
 
 ## P2 — Safe generative loop

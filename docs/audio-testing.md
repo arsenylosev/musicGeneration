@@ -4,7 +4,8 @@ From `AUDIO_PIPELINE_ARCHITECTURE.pdf` §§8–9.
 
 **Current:** all four pinned native workflows are locally reproduced; see
 [10.3 / 10.4 / 11.2 evidence](#four-native-listening-workflows-103--104--112).
-Human gates **7.5 / 9.4 / 11.3 / 11.4** remain open. Earlier checkpoints below are
+The later [human rough-demo acceptance and portable report](audio-listening-review.md)
+complete **7.5 / 9.4**; **11.3 / 11.4** remain open. Earlier checkpoints below are
 historical measurements, not current blockers or human acceptance.
 
 ## Testing strategy
@@ -761,7 +762,9 @@ boundary tolerances. Other sources explicitly report reconciliation not applicab
   run identified only the intentional cold-expression timestamp; this was resolved
   by recording that distinction, not relaxing audio floors.
 
-**Human listening is pending.** Polyphonic f0 (especially multitrack 19-EDO) is
+**At this checkpoint human listening was pending**; the later
+[acceptance record](audio-listening-review.md) supersedes that status. Polyphonic
+f0 (especially multitrack 19-EDO) is
 **unmeasured**; mono reference results do not certify arbitrary SoundFont notes.
 Role recognizability, subjective groove, complete envelope decay, rhythm F-score,
 notes F1, CLAP/FAD and mastering remain unmeasured. Task **7.5, 9.4, 11.3, 11.4**
@@ -790,6 +793,6 @@ openspec validate --all --strict --no-interactive
 - Flake8 clean; mypy clean (**137 files**, unchanged untyped-body informational
   note). Strict OpenSpec validation passes. Logs remain beside the native evidence.
 
-Only **10.3, 10.4, 11.2** are completed here. The four human-review tasks remain
-open, and no WAV/SF2/cache, runtime freeze, credential or unrelated tooling file
-is part of the commit.
+Only **10.3, 10.4, 11.2** were completed in that checkpoint; its four review tasks
+were left open. No WAV/SF2/cache, runtime freeze, credential or unrelated tooling
+file was part of that commit. See the later [human outcome and task decisions](audio-listening-review.md).
