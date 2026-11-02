@@ -90,6 +90,9 @@ def render(request: RenderRequest, *, binding: Any = None) -> Path:
     if not 8000 <= request.sample_rate <= 96000:
         raise ValueError('FluidSynth sample rate must be between 8000 and 96000 Hz')
     source = MidiEvents.load(request.midi_path)
+    if request.required_tuning == 'channel_pitch':
+        from aimusic.audio.render.tuning import channel_pitch_evidence
+        channel_pitch_evidence(source)
     for event in source.events:
         if not event.message.is_meta and event.message.type not in SUPPORTED:
             raise ValueError(f'Unsupported FluidSynth event {event.message.type} at tick {event.tick}; '

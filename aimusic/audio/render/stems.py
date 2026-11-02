@@ -22,7 +22,7 @@ from aimusic.audio.analysis.from_midi import _infer_role
 from aimusic.audio.midi_events import MidiEvents, MidiEventError
 from aimusic.audio.config import normalize_routing, resolve_soundfont
 from aimusic.audio.render.registry import RenderRequest, ResolvedRenderer, render_request as render_stem
-from aimusic.audio.render import registry
+from aimusic.audio.render import registry, tuning
 from aimusic.audio.render.simple_r import _peak_dbfs
 from aimusic.audio.render.stem_publication import pin_output
 from aimusic.audio.render.util import peak_normalize, render_frames, limit_peak, write_float_wav
@@ -182,6 +182,7 @@ def stem_artifact_names(stems: tuple[SourceStem, ...]) -> list[str]:
 class StemRenderPlan:
     stems: tuple[SourceStem, ...]
     renderers: tuple[ResolvedRenderer, ...]
+    tuning_evidence: tuple[dict[str, Any] | None, ...]
     config: dict[str, Any]
     tuning: dict[str, Any]
     bounds: list[float]
@@ -223,6 +224,9 @@ def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None 
         stem.role, config=cfg, soundfont=asset,
         tuning=registry.required_tuning(stem.midi, metadata, score=score, track_name=stem.name,
                                         source_track_index=stem.source_track_index, drums=stem.channels == (9,))) for stem in logical)
+    evidence = tuple(tuning.channel_pitch_evidence(stem.midi)
+                     if choice.backend.name == 'fluidsynth' and choice.required_tuning == 'channel_pitch' else None
+                     for stem, choice in zip(logical, choices))
     end = float(source.tempo_map.seconds(max(e.tick for e in source.events)))
     bounds = metadata.get('bar_boundaries_sec')
     if not bounds:
@@ -230,7 +234,7 @@ def prepare_stem_render(midi_path: Path | str, *, config: dict[str, Any] | None 
         bar = 4 * tempo / 1000000
         bounds = [i * bar for i in range(max(1, round(end / bar)) + 1)]
         bounds[-1] = end
-    return StemRenderPlan(logical, choices, cfg, metadata.get('tuning', {}), bounds,
+    return StemRenderPlan(logical, choices, evidence, cfg, metadata.get('tuning', {}), bounds,
                           max(end, float(bounds[-1]), configured_end), tail,
                           hashlib.sha256(payload).hexdigest())
 

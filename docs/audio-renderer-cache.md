@@ -44,21 +44,22 @@ Nonstandard values require `channel_pitch`, even if later reset. RPN selection
 is channel-local, null selection is a no-op, and unknown RPN/NRPN writes require
 `unsupported`. Per-channel MPE exports require `channel_pitch`; explicit MPE zone
 configuration requires the distinct `mpe` capability. MTS SysEx/metadata require
-`mts`, while other SysEx requires `sysex`. These capabilities are not advertised
-by either current backend. Percussion stays drum-key based and is excluded from
+`mts`, while other SysEx requires `sysex`. Neither backend advertises zone `mpe`, `mts`, `sysex` or `unsupported`.
+FluidSynth 2.6.2 now advertises only the proven `channel_pitch` subset below. Percussion stays drum-key based and is excluded from
 pitched intent; global unverified SysEx is still gated.
 
 Orchestration preflights original MIDI before groove, then checks expressive MIDI
-again before render-cache lookup. Task **8.2** native MPE proof and **8.3**
-Score/event pitch-agreement checks remain open; capability classification is not
-a MIDI-pitch or audio-f0 accuracy certificate.
+again before render-cache lookup. Native admission also validates the exact
+channel-pitch subset before groove/cache, and independently before native allocation.
+Source-fixture original-Hz tests compare event reconstruction after groove/isolation
+within one cent; this is not a general Score/imported-MIDI or audio-f0 certificate.
 
 C6 tasks 7.1–7.3 add the [clean-room FluidSynth adapter](audio-fluidsynth.md),
 optional pinned bindings, common horizon/fixed tail, aligned WAVs and attenuation-only
 0.95 mix ceiling. Providers query versions without allocating a synth; fixed native
-settings enter identity and are checked on creation. This remains asset-free mocked
-implementation evidence, not native listening/tuning acceptance. The FluidSynth
-registry capability is still `direct_12` until C7's native tuning proof.
+settings enter identity and are checked on creation. The opt-in native lane now
+measures real 12-EDO and controlled 19-EDO output;
+[results and limits](audio-testing.md) do not constitute human listening acceptance.
 
 SoundFont selection reuses config precedence (`paths.soundfont`, then
 `AIMUSIC_SOUNDFONT`; the resolver also supports explicit CLI input). An explicitly
@@ -79,7 +80,11 @@ preview.
 - normalized config/routes, fallback policy and duration/tail settings;
 - each source identity/role and its `requested_backend`, `effective_backend`,
   `fallback_reason`, required tuning and capability/backend/code/native versions;
-- SoundFont content digests, audio source-code digests and runtime identity.
+- SoundFont content digests, audio source-code digests and runtime identity;
+- per-native-channel-pitch stem `tuning_evidence`: exact subset revision,
+  source-track/channel/key/onset/wheel and reconstructed Hz. Stem WAV sidecars
+  retain `required_tuning`, original tuning metadata, and the same event evidence.
+  This data participates in the render fingerprint and verified warm restore.
 
 The orchestrator copies original MIDI or all package payloads into private
 scratch **before** parsing, package validation or reconciliation. It checks both

@@ -1,10 +1,11 @@
 # Four reproducible listening-demo sources (v1, asset-free portion)
 
 **OpenSpec 10.3 and 10.4 remain unchecked.** Source generation and simple-preview
-checks are delivered; the four-example **native listening set is not**. No
-approved SoundFont/native lane or human listening evidence is available. Neither
-production renderer currently advertises `channel_pitch`; installing a SoundFont
-alone does **not** unblock 19-EDO. Do not alter capability flags to bypass this gate.
+checks are delivered; the complete four-example **native listening set is not**.
+The approved GeneralUser GS/native lane now proves the eight-bar fixture and
+controlled 19-EDO reference (see [native evidence](audio-testing.md)). FluidSynth
+2.6.2 advertises the narrow proven `channel_pitch` subset; no human listening
+approval or complete four-example acceptance is claimed.
 
 ## Exactly four sources
 
@@ -44,7 +45,8 @@ PrettyMIDI **0.2.11.post0**, SoundFile **0.14.0**, PyYAML **6.0.3**. Record your
 alongside local outputs. No GPU, service key, model, network call or licensed asset
 is needed after installation. Source generation is near-instant; the documented
 short source/preview sequence took seconds locally. The **~60-second eight-bar
-native target remains unmeasured**, not satisfied by simple preview timing.
+native target is measured separately** in [audio-testing.md](audio-testing.md),
+not inferred from simple preview timing.
 
 Bindings (`.[audio-render]`, pyfluidsynth 1.3.4), the **native FluidSynth library**,
 and a user-selected **license-approved SoundFont** are three separate prerequisites.
@@ -117,7 +119,7 @@ or WAVs. Validation-only can admit the source without allocating a renderer:
 python -m aimusic.app.cli render-midi "$DEMO/reference-19/source.mid" --profile listening
 ```
 
-### Exact eventual listening commands (prerequisites still blocked)
+### Listening commands (approved native prerequisites required)
 
 After explicit approval and installation, set `SF` to the approved local file;
 **do not** execute with a placeholder. SoundFont selection is CLI > profile/config
@@ -127,15 +129,15 @@ After explicit approval and installation, set `SF` to the approved local file;
 SF=/absolute/path/to/license-approved.sf2
 python -m aimusic.app.cli render-midi "$DEMO/fixture-12/source.mid" --profile listening --soundfont "$SF" --out "$DEMO/fixture-listening" --no-validate-only
 python -m aimusic.app.cli render-audio "$DEMO"/generated-12/run_* --profile listening --soundfont "$SF" --out "$DEMO/generated-listening" --no-validate-only
-# These additionally require proven/implemented channel_pitch capability (8.2/8.3):
+# These require the proven native 2.6.2 channel_pitch subset:
 python -m aimusic.app.cli render-midi "$DEMO/reference-19/source.mid" --profile listening --soundfont "$SF" --out "$DEMO/reference-listening" --no-validate-only
 python -m aimusic.app.cli render-midi "$DEMO/multitrack-19/source.mid" --profile listening --soundfont "$SF" --out "$DEMO/multitrack-listening" --no-validate-only
 ```
 
-Until then, these are reproduction commands, **not successful native evidence**.
-Missing resources fail; even available native resources cannot bypass tuning
-capability rejection. Native stems/mixes, asset hashes, dry groove-on/off f0
-reports, pinned cold-repeat/warm-cache evidence and listening review are deferred.
+These are reproduction commands, **not a claim that all four examples have been
+accepted**. Missing resources and unsupported tuning fail. The opt-in lane retains
+eight-bar/reference native stems/mixes, asset hashes, dry groove-on/off f0 reports
+and cache evidence; complete four-example artifacts and listening review remain open.
 
 ## Supported source-event subset and independent expectations
 

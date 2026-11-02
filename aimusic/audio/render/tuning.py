@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from fractions import Fraction
-from typing import Any
+from typing import Any, NoReturn
 
 from aimusic.audio.midi_events import MidiEvents
 from aimusic.core.core_types import Score
@@ -155,3 +155,65 @@ def required_tuning(midi: MidiEvents, metadata: dict[str, Any], *, score: Score 
                     'mts': 'mts'}.get(method, 'unsupported')
             modes.add(mode)
     return max(modes or {'direct_12'}, key=_MODES.index)
+
+
+def channel_pitch_evidence(midi: MidiEvents) -> dict[str, Any]:
+    """Validate the native-proven RPN0 +/-2 subset and reconstruct onset Hz.
+
+    One sounding key per melodic channel; explicit full range setup/null and a
+    fresh wheel before every note. No live bends, sustain, zones, NRPN, relative
+    data, fine/coarse tuning or opaque events. Pan CC10 is allowed (the native
+    simultaneous-channel probe separates mono measurement windows with it).
+    This is event evidence only, never an audible-frequency certificate.
+    """
+    from aimusic.audio.render.registry import UnsupportedTuning
+    setup = ((101, 0), (100, 0), (6, 2), (38, 0), (101, 127), (100, 127))
+    progress = [0] * 16
+    ready = [False] * 16
+    wheels: list[int | None] = [None] * 16
+    active: list[int | None] = [None] * 16
+    rows = []
+    for event in midi.events:
+        msg, ch = event.message, event.channel
+        if msg.is_meta:
+            continue
+
+        def reject() -> NoReturn:
+            raise UnsupportedTuning(f'Unsupported channel_pitch subset at track={event.track} '
+                                    f'channel={ch} tick={event.tick}: {msg}; '
+                                    'require explicit RPN0 +/-2, idle-channel wheels, one key/channel')
+
+        if ch is None or ch == 9:
+            reject()
+        if msg.type == 'control_change':
+            if msg.control == 10:
+                continue
+            if active[ch] is not None or (msg.control, msg.value) != setup[progress[ch]]:
+                reject()
+            ready[ch] = False
+            progress[ch] += 1
+            if progress[ch] == len(setup):
+                progress[ch], ready[ch] = 0, True
+        elif msg.type == 'pitchwheel':
+            if active[ch] is not None or not ready[ch]:
+                reject()
+            wheels[ch] = msg.pitch
+        elif msg.type == 'program_change':
+            if active[ch] is not None or progress[ch]:
+                reject()
+        elif msg.type == 'note_on' and msg.velocity:
+            wheel = wheels[ch]
+            if not ready[ch] or wheel is None or active[ch] is not None:
+                reject()
+            rows.append({'track': event.track, 'channel': ch, 'tick': event.tick, 'midi_note': msg.note,
+                         'wheel': wheel, 'hz': 440 * 2 ** ((msg.note - 69 + wheel * 2 / 8192) / 12)})
+            active[ch], wheels[ch] = msg.note, None
+        elif msg.type in ('note_off', 'note_on'):
+            if active[ch] != msg.note:
+                reject()
+            active[ch] = None
+        else:
+            reject()
+    if any(progress):
+        raise UnsupportedTuning('Unsupported channel_pitch subset: incomplete RPN0 transaction')
+    return {'subset': 'rpn0-2-semitones-v1', 'notes': rows, 'audio_pitch_accuracy': 'unmeasured'}

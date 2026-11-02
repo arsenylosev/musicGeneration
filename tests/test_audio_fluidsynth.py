@@ -294,3 +294,10 @@ class TestFluidSynth(unittest.TestCase):
         self.assertEqual(data['frames'], 14000)
         self.assertEqual(data['effective_backend'], 'fluidsynth')
         self.assertIsNone(data['fallback_reason'])
+
+    def test_direct_native_channel_pitch_request_cannot_bypass_subset_preflight(self):
+        # Existing dispatch fixture uses unproven 12.5-semitone RPN + sustain.
+        with self.assertRaisesRegex(registry.UnsupportedTuning, 'channel_pitch subset'):
+            self.render(replace(self.request, required_tuning='channel_pitch'))
+        self.binding.Synth.assert_not_called()
+        self.assertFalse(self.request.output_path.exists())

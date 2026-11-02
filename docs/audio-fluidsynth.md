@@ -90,8 +90,9 @@ MUS-34 acceptance remain open; do not interpret metrics as listening approval.
 - SysEx (including MTS/reset) and pressure messages fail before allocation. The
   pinned public `Synth` has no pressure methods; we do not bypass it with private
   handles. Events are still preserved by groove/isolation, not silently discarded.
-- The registry advertises **direct_12 only**. Dispatching pitch/RPN in a mock does
-  not prove native MPE/19-EDO support; that admission gate remains for C7.
+- The registry advertises `channel_pitch` **only for native 2.6.2** with the
+  pinned 1.3.4 binding, after the real fixtures below passed. Other native versions
+  remain `direct_12` only. No general MPE/MTS capability is advertised.
 - Fixed settings: gain 0.2, 16 MIDI channels, polyphony 256, one CPU, one stereo
   output/group, reverb/chorus off, minimum note length 0, MMA banks, dynamic sample
   loading off. Public `get_setting` readback must match. Settings/code/native and
@@ -218,3 +219,52 @@ zero, scanning RIFF chunk lengths/padding (not searching audio bytes). Samples,
 peak values and positions remain unchanged. Asset-free tests inject different
 wall times; the native lane checks all six cold-repeat and warm-restored WAVs
 byte-for-byte. Cross-platform/native-version byte identity is not promised.
+
+## Proven channel-pitch subset (native 2.6.2 / binding 1.3.4)
+
+`channel_pitch` is **not general MPE**. Supported source events match
+`demo_sources reference-19` / `multitrack-19`:
+
+- Every melodic channel explicitly sends the complete ordered transaction
+  **CC101=0, CC100=0, CC6=2, CC38=0, CC101=127, CC100=127**.
+  Only this RPN0 **±2 semitones, 0 cents** range is proven.
+- Program setup; a fresh signed pitchwheel before every note; at most one
+  key sounding per channel; wheel/range/program changes only on idle channels.
+  Notes may sound simultaneously on independent channels in one logical stem.
+- CC10 pan is the sole additional admitted controller, used to separate left/right
+  monophonic windows in the single-synth simultaneous-channel proof. It does not
+  broaden pitch semantics. Conductor metadata remains preserved.
+- No sustain, modulation, pressure, live bends, NRPN, increment/decrement,
+  fine/coarse tuning, other ranges, zone/master expression, SysEx or MTS.
+  Incomplete/out-of-order range setup, missing wheels and channel overlaps reject.
+  This deliberately rejects many otherwise valid MIDI/MPE files rather than
+  advertise unmeasured semantics. Use direct-12 for its separately supported
+  instrument/controller path, never relabel microtonal content to bypass admission.
+- Registry modes are version-pinned; original and expressive source preflight,
+  per-request execution and direct adapter calls enforce the subset. Unsupported
+  tuning cannot use simple fallback. MTS and conflicting channel ownership fail
+  before successful WAV/cache publication.
+
+Event evidence in `render.json` and stem sidecars includes the subset revision,
+track/channel/key/tick/wheel and reconstructed Hz, with original tuning metadata
+retained. It enters the render-cache fingerprint. MIDI-event checks compare the
+original fixture's **440 × 2^(step/19)** targets, after real groove and isolation,
+within **1 cent**. Inferred imports still have no known intended lattice; emitted
+frequencies are event reconstruction, **not** automatically an audio-f0 certificate.
+
+The real dry reference uses the original **GM program 80** (zero-based square
+lead), without changing fixture bytes/pitches or choosing an easier target.
+GeneralUser's sample timbre passes the existing checker; no alternate preset,
+attack-window adjustment, tuning correction or relaxed threshold was needed.
+Both simultaneous voices are also program 80, using opposite-signed wheels and
+hard-pan CC10 in one synth. See [measured results](audio-testing.md).
+
+Additional local runtime-byte provenance (not a cross-platform requirement):
+
+- Installed `fluidsynth.py` SHA-256:
+  `45fdf0b9e00b77080d6c5e0a1d57498d27a6b3504d3a34225a1e2334ab7a42a4`.
+- Homebrew libfluidsynth 2.6.2 dylib SHA-256:
+  `9c6732846300884c1d001e0d6f98acd9314c6a59cc096568db815570855e9dc8`.
+
+Exact external paths and Python package freeze are retained in local
+`runtime-files.json` / `pip-freeze.txt`, not tracked. No licensed asset is copied.

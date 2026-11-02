@@ -472,7 +472,7 @@ export AIMUSIC_FLUIDSYNTH_ARTIFACTS="$LOCAL_OUTPUTS"  # existing external direct
 python -m pytest tests/test_audio_fluidsynth_integration.py -q -s
 # Default/asset-free lane, including subprocess proof of fail-closed opt-in:
 unset AIMUSIC_RUN_FLUIDSYNTH_TESTS AIMUSIC_FLUIDSYNTH_MANIFEST AIMUSIC_SOUNDFONT
-python -m pytest tests/test_audio_native_contract.py tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q
+python -m pytest tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q
 ```
 
 `AIMUSIC_FLUIDSYNTH_ARTIFACTS` is optional (defaults to OS temp); each run prints a
@@ -505,3 +505,78 @@ than relaxing the target. Native/binding/asset provenance is checked on each run
 **7.5 remains open**: samples are available for listening, not reviewed by a human.
 No MUS-34 completion, role recognizability, mastered quality, CLAP/FAD, or broad
 polyphonic tuning certification follows from these signal measurements.
+
+## Native controlled tuning checkpoint (8.2 / 8.3 / 9.3)
+
+Final targeted run on the pinned asset/runtime above: **4 passed**, no skips
+(3.42 s), `fluidsynth-evidence-qjrwn8k9` in local scratch. The existing eight-bar
+checks still pass: cold **0.978 s**, independent cold **0.918 s**, warm **0.357 s**;
+all six WAV hashes match. Signal metrics are unchanged from the table above.
+
+Production dry `reference-19` is rendered through the registry/orchestrator with
+original timing, then with a controlled **+12.5 ms (+12 ticks)** microtiming offset
+via `apply_groove`. Original target frequencies never change. Windows shift
+independently by exactly **600 samples** at 48 kHz; notes' event evidence is checked
+at the corresponding original or shifted ticks. Every run has **228000 frames**
+(4.5-second horizon + 0.25-second tail); dry reverb/chorus remain off.
+
+| Original target Hz | Original measured Hz / abs cents | Groove measured Hz / abs cents |
+|---:|---:|---:|
+| 456.348220 | 456.450112 / 0.386501 | 456.449698 / 0.384934 |
+| 509.128504 | 509.551902 / 1.439118 | 509.548268 / 1.426770 |
+| 568.013247 | 568.882467 / 2.647250 | 568.870632 / 2.611233 |
+
+- Original: coverage **1.0**, mean **1.490956¢**, P95 **2.526436¢**.
+- Groove: coverage **1.0**, mean **1.474312¢**, P95 **2.492787¢**.
+- **Simultaneous independent channels**, same synth, hard-panned mono windows:
+  456.450105 / **0.386478¢**, 568.882500 / **2.647350¢**, coverage **1.0** each.
+  A shared/global wheel would detune a voice; these are opposite-signed offsets.
+  This is separated controlled measurement, **not polyphonic pitch scoring**.
+- Deliberately flattened wheels, **same original targets/windows**, remain
+  measurable (coverage **1.0**) but reject: mean **41.678582¢**, P95 **47.877602¢**;
+  per-tone **37.442129 / 48.897800 / 38.695818¢**. Both controlled <=5¢ and
+  aggregate-only mean/P95 <=15¢ checks reject. Floors/config remain unchanged.
+- Reference warm-cache WAV bytes and provenance match the original; groove and
+  flattened sources miss its cache. Cache fingerprint equals the recorded
+  `render.json`, including original tuning events and reconstructed onset pitches.
+  Native MTS and cross-track-ownership rejection tests publish no success.
+
+Reports: `reference-19-report.json`, `{original,groove,flat}/tuning-check.json`,
+`flat/tuning-check-general.json`, `simultaneous-tuning.json`; each retains expected
+and measured Hz, confidence, coverage and unchanged checker configuration. The
+reference report also hashes the original `expected.json`. Raw public-adapter
+probe MIDI/WAV/reports are retained separately; no native capability was promoted
+until those measurements passed. Asset-free red tests then required the exact
+subset, idle-channel pitch state, no fallback and pre-cache/pre-allocation refusal.
+An inverted note-admission state was killed by regression tests before restoration.
+
+**Limits / open gates:** this is controlled monophonic f0 and source-event evidence.
+Arbitrary imports and polyphonic audio remain **unmeasured**. Orchestration does
+not automatically ingest arbitrary expected-frequency sidecars or certify f0;
+the native harness explicitly runs `require_pass()` before treating its controlled
+reports as passing. Flattened renders are intentionally retained as rejected
+counterexamples, never labelled validated. Human listening, the complete four
+examples, Scala/MTS-helper breadth, diffusion gating, CLAP/FAD and mastering remain
+open. No 7.5/9.4/10.3/10.4/11.x or Linear completion follows from these metrics.
+
+Final checkpoint verification (native opt-in unset for all asset-free commands):
+
+```bash
+python -m pytest tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q
+python -m unittest discover -s tests -p 'test_*.py'
+flake8 aimusic tests ui.py
+mypy aimusic tests ui.py
+openspec validate --all --strict --no-interactive
+```
+
+- Lightweight + architecture/contract (including isolated wheel smoke):
+  **349 passed**, **681 subtests passed**, **5 skipped** (four deliberately opt-in
+  native tests and the pre-existing optional bridge test), 32.62 s.
+- Full unittest: **686 run**, **13 skipped**, no failures, 79.786 s. Native skips
+  in this lane are not counted as acceptance; the separate native run has no skips.
+- Flake8 clean; mypy clean (**137 files**, unchanged untyped-body informational
+  note); all strict OpenSpec checks and `git diff --check` clean.
+- Completed this continuation: **1.3, 7.4, 8.2, 8.3, 9.3** only. **7.5** retains
+  partial installation/license/artifact work; **9.4, 10.3, 10.4 and outstanding
+  11.x remain open**. No change to the already-completed historical 11.1 check.
+  MUS-35 remains partial and the blocking chain is unchanged. No Linear/push/PR.

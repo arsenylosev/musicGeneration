@@ -87,8 +87,8 @@ Suggested message: `feat(audio): enforce supported MPE tuning and reject lossy r
 Files: new `audio/render/tuning.py`, context/registry integration, MPE fixtures and tuning-policy tests/docs.
 
 - [x] 8.1 Derive required tuning from Score/EDO/base tuning and source channel events; verify new `tests/test_audio_tuning.py` covers ordinary direct-12, misleading fractional-base labels, pitch bends and nonstandard RPN range, keeping percussion drum-key based.
-- [ ] 8.2 Prove the FluidSynth per-channel MPE capability using a controlled native fixture and forbid simple fallback for it; verify unsupported MTS, ambiguous channel ownership and unavailable MPE backend failures occur before successful output publication.
-- [ ] 8.3 Carry tuning identity into manifests/cache and compare expected versus event-reconstructed pitch after groove and isolation; verify the 19-EDO path stays within one cent, document the exact supported MPE subset and unsupported MTS path, and commit C7 after lightweight and targeted native tests pass.
+- [x] 8.2 Prove the FluidSynth per-channel MPE capability using a controlled native fixture and forbid simple fallback for it; verify unsupported MTS, ambiguous channel ownership and unavailable MPE backend failures occur before successful output publication.
+- [x] 8.3 Carry tuning identity into manifests/cache and compare expected versus event-reconstructed pitch after groove and isolation; verify the 19-EDO path stays within one cent, document the exact supported MPE subset and unsupported MTS path, and commit C7 after lightweight and targeted native tests pass.
 
 ## 9. Controlled dry-render tuning evidence — commit C8 / review gate C (partial MUS-35)
 
@@ -98,7 +98,7 @@ Files: new `audio/scoring/tuning_check.py`, controlled-tone source/expected-freq
 
 - [x] 9.1 Implement deterministic monophonic-window f0 analysis and structured expected/measured/coverage reports; verify new `tests/test_audio_tuning_check.py` with synthetic exact, detuned, silent, insufficient-confidence and percussion cases, without transcription/model dependencies.
 - [x] 9.2 Enforce controlled per-tone <=5-cent acceptance and default mean/P95 <=15-cent hard floors, honoring stricter configured limits; verify boundary tests, flattened-12-TET corruption and missing-evidence rejection use original targets rather than inferring new targets from the bad output.
-- [ ] 9.3 Run native dry 19-EDO reference tones through groove-disabled and groove-enabled paths; verify intended frequency windows pass and a deliberately flattened version fails, record asset/runtime hashes, and label polyphonic frequency accuracy unmeasured.
+- [x] 9.3 Run native dry 19-EDO reference tones through groove-disabled and groove-enabled paths; verify intended frequency windows pass and a deliberately flattened version fails, record asset/runtime hashes, and label polyphonic frequency accuracy unmeasured.
 - [ ] 9.4 Document evidence limits and remaining MUS-35 Scala/helpers/diffusion-gating work; present reports and controlled listening samples for human review and commit C8, explicitly leaving MUS-35 partially delivered and later blocking relations intact.
 
 ## 10. Imported MIDI and reproducible CLI examples — commit C9

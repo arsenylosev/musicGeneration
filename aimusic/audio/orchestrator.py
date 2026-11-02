@@ -318,8 +318,8 @@ class Orchestrator:
                 'application_backend': {'requested_backend': 'native', 'effective_backend': 'native',
                                         'fallback_reason': None},
                 'renderers': [dict(choice.identity(), source_track_index=stem.source_track_index,
-                                   role=stem.role, role_source=stem.role_source)
-                              for stem, choice in zip(plan.stems, plan.renderers)],
+                                   role=stem.role, role_source=stem.role_source, tuning_evidence=evidence)
+                              for stem, choice, evidence in zip(plan.stems, plan.renderers, plan.tuning_evidence)],
                 'duration_sec': plan.duration_sec, 'release_tail_sec': plan.release_tail_sec,
                 'code': code_identity, 'runtime': _runtime_identity('render'),
             }

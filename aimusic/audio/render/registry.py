@@ -91,6 +91,8 @@ class RenderResult:
     render_settings: dict[str, Any]
     frames: int
     peak_gain: float
+    required_tuning: str
+    tuning: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), 'output_path': self.output_path.name}
@@ -124,6 +126,10 @@ def render_request(request: RenderRequest, selected: ResolvedRenderer) -> Render
     frames = render_frames(request.sample_rate, request.duration_sec, request.release_tail_sec)
     selected.verify_asset()
     midi_sha256 = file_digest(request.midi_path)
+    evidence = None
+    if selected.backend.name == 'fluidsynth' and request.required_tuning == 'channel_pitch':
+        from aimusic.audio.midi_events import MidiEvents
+        evidence = tuning.channel_pitch_evidence(MidiEvents.load(request.midi_path))
     path = selected.backend.render(request)  # No runtime fallback, even for a missing-resource error.
     selected.verify_asset()
     if file_digest(request.midi_path) != midi_sha256:
@@ -146,7 +152,8 @@ def render_request(request: RenderRequest, selected: ResolvedRenderer) -> Render
                           backend.code_digest, backend.native_versions, selected.soundfont_sha256, midi_sha256,
                           {**dict(backend.settings), 'synth.sample-rate': request.sample_rate,
                            'duration_sec': request.duration_sec, 'release_tail_sec': request.release_tail_sec,
-                           'peak_ceiling': ceiling}, len(samples), gain)
+                           'peak_ceiling': ceiling}, len(samples), gain, request.required_tuning,
+                          {'metadata': request.tuning, 'event_evidence': evidence})
     Path(str(path) + '.json').write_text(json.dumps(result.to_dict(), sort_keys=True, indent=2), encoding='utf-8')
     return result
 
@@ -169,8 +176,11 @@ def _fluidsynth_backend(asset: Path | None) -> RendererBackend:
                                       'set paths.soundfont or AIMUSIC_SOUNDFONT (docs/audio-fluidsynth.md)')
     from aimusic.audio.render import fluidsynth_r
     binding = fluidsynth_r.load_binding()
-    return RendererBackend('fluidsynth', '1', RendererCapabilities(instrument_fidelity=True),
-                           file_digest(Path(fluidsynth_r.__file__)), fluidsynth_r.versions(binding),
+    native = fluidsynth_r.versions(binding)
+    # Promotion is pinned to the runtime measured by the opt-in native lane.
+    modes = ('direct_12', 'channel_pitch') if dict(native).get('libfluidsynth') == '2.6.2' else ('direct_12',)
+    return RendererBackend('fluidsynth', '2', RendererCapabilities(modes, 'rpn0-2-semitones-v1', True),
+                           file_digest(Path(fluidsynth_r.__file__)), native,
                            partial(fluidsynth_r.render, binding=binding),
                            tuple(sorted({**fluidsynth_r.SETTINGS, 'block_frames': fluidsynth_r.BLOCK_FRAMES}.items())))
 
