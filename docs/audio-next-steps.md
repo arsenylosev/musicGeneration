@@ -19,7 +19,8 @@ Ordered backlog. Prefer one P0/P1 item per session. Full roadmap:
 - [x] Human rough-demo acceptance of the implemented clean-room FluidSynth backend
   (`[audio-render]`): [all four embedded players worked; rough demos accepted](audio-listening-review.md).
   Human timing comparison is recorded (“No defects heard”); no aesthetic groove
-  improvement claimed. Final integration review remains open.
+  improvement claimed. [Final integration review is complete](audio-testing.md#final-acceptance-review-114)
+  (**42/42** demo tasks); MUS-35 remains partial and later dependencies are unchanged.
 - [ ] CI reconcile on fixtures
 
 ## P2 — Safe generative loop

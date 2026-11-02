@@ -5,8 +5,9 @@ including planner reconciliation and controlled f0. The user
 [accepted the four rough demos](audio-listening-review.md) on 2026-11-02; task 7.5
 is complete and MUS-34 completion can be proposed. This is separate from metrics;
 MUS-35 stays partial. The separate human timing review is now recorded with
-“No defects heard”; no aesthetic groove improvement is claimed. Final review
-(task 11.4) remains open.
+“No defects heard”; no aesthetic groove improvement is claimed. [Final review
+(task 11.4) is complete](audio-testing.md#final-acceptance-review-114): **42/42** demo tasks,
+without changing Linear or the remaining MUS-35 scope.
 
 ## Clean-room provenance and dependency review (2026-11-01)
 

@@ -1,6 +1,6 @@
 # Tasks
 
-Implementation is in progress under explicit user approval. The proposed commit names below are planning checkpoints; actual evidence and continuation commits are recorded in `docs/audio-testing.md`. Only checked boxes are delivered. No Linear updates, pushes or PR creation are authorized here.
+Implementation and approved final review are complete: **42/42 tasks**. The proposed commit names below are planning checkpoints; actual evidence and continuation commits are recorded in `docs/audio-testing.md`. Only checked boxes are delivered. No Linear updates, pushes or PR creation are authorized here.
 
 Each implementation checkbox is a focused slice with its own tests. Write failing regression tests first, implement, then verify without deleting assertions or weakening floors. The named new test files are planned outputs, not existing coverage. `python` below means the interpreter in the chosen virtual environment; this planning shell exposes `python3`, not `python`.
 
@@ -128,24 +128,35 @@ pair review on the same date completes **11.3**: the user could not perceive a
 difference between `timing_original.wav` and `timing_shifted_12_5ms.wav`, then
 explicitly reported “No defects heard” when asked about clipping, stuck/lost
 notes, truncation or broken timing. A uniform 12.5 ms shift may be imperceptible;
-no aesthetic groove improvement is claimed. **11.4 stays open** as requested.
+no aesthetic groove improvement is claimed. **11.4 stayed open at that checkpoint**;
+the subsequent approved final review below completes it.
 The demos remain rough and dry, not mastered, with no CLAP/FAD scores and
 polyphonic f0 unmeasured. MUS-35 remains partial and Linear is unchanged.
 
 ## 11. Final cross-lane verification — commit C10 / review gate D
 
-Suggested message: `test(audio): record audible demo acceptance and reproducibility`
+Finalization message: `test(audio): finalize audible demo acceptance`
 
 Scope: integration evidence and any integration-only harness adjustments, not delayed unit coverage. No quality floor may be relaxed to finish this milestone.
 
 - [x] 11.1 Re-run core/architecture, all lightweight audio, lint/type checks and clean-wheel commands from group 1/3 in an asset-free environment; verify no new failures or quarantine violations and record separately any unchanged baseline failures.
 - [x] 11.2 Reproduce all four examples in the pinned native lane, recording signal metrics, reconciliation, controlled tuning, provenance, cache equivalence and elapsed time; verify unsupported tuning still fails and no skipped native test is presented as acceptance evidence.
 - [x] 11.3 Obtain human listening review of recognizable 12-EDO roles, groove on/off timing and the supported 19-EDO examples; record findings and the explicit limitation that these are rough audible demos, not mastered/CLAP/FAD-scored production audio.
-- [ ] 11.4 Review the final diff and per-capability acceptance mapping, confirm no unrelated user files or prohibited assets are staged, and commit only the integration evidence/harness changes as C10; present MUS-34 completion evidence, partial MUS-35 status and remaining follow-up scope without changing tickets or opening PRs.
+- [x] 11.4 Review the final diff and per-capability acceptance mapping, confirm no unrelated user files or prohibited assets are staged, and commit only the integration evidence/harness changes as C10; present MUS-34 completion evidence, partial MUS-35 status and remaining follow-up scope without changing tickets or opening PRs.
+
+Finalization (2026-11-03, after `ed06d58` / `134ff43`): no Critical/Required
+findings; reviewer authorized **11.4**. [Per-capability acceptance and verification](../../../docs/audio-testing.md#final-acceptance-review-114)
+record **376 asset-free passes / 6 optional skips**, **5 native passes / no skips**,
+and implementation full unittest **714 run / 14 optional skips**; lint/type/strict
+OpenSpec clean. Reviewer independently confirmed the two lanes, exact authoritative
+**[12,252]** ticks, unchanged four mixes/timing WAVs/listening-page bytes and no
+tracked author-machine paths or prohibited assets/credentials/submodules. External
+evidence: `fluidsynth-evidence-afttn_6e`. This finalization changes only **11.4**
+to checked; no implementation scope or quality floor changed.
 
 ## Workflow follow-up
 
-- Request review of completed implementation before archiving this change.
-- Propose Linear updates only with user authorization: MUS-34 can be completed when its criteria pass; MUS-35 and MUS-29 must not be closed by this partial milestone.
+- Final review is approved; archiving remains a separately authorized follow-up.
+- MUS-34 completion may now be proposed, without mutating Linear. MUS-35 remains partial (Scala/MTS helpers and diffusion gating); polyphonic f0, later scorers/restyle/mastering remain outside this milestone. MUS-35 and MUS-29 must not be closed by this partial milestone.
 - Preserve MUS-34 → MUS-35 → MUS-36 → MUS-37 → MUS-38; do not begin restyle before the scorer milestone merges.
 - Fork-first PR delivery is separate from this task list; any org PR to `iCog-Labs-Dev/musicGeneration` requires an explicit user request.

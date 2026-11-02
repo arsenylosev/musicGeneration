@@ -5,7 +5,8 @@ From `AUDIO_PIPELINE_ARCHITECTURE.pdf` §§8–9.
 **Current:** all four pinned native workflows are locally reproduced; see
 [10.3 / 10.4 / 11.2 evidence](#four-native-listening-workflows-103--104--112).
 The later [human rough-demo acceptance and portable report](audio-listening-review.md)
-complete **7.5 / 9.4 / 11.3**; only **11.4** remains open. The timing-pair review
+complete **7.5 / 9.4 / 11.3**. [Approved final review (11.4)](#final-acceptance-review-114)
+completes the change at **42/42** tasks. The timing-pair review
 records no perceived difference and “No defects heard”, not aesthetic groove
 improvement. Earlier checkpoints below are historical measurements, not current
 blockers or human acceptance.
@@ -252,8 +253,8 @@ unit tests independently assert click exclusion and exact-zero silent stems.
 The local detailed report is `c6-smoke.KwN21L/report.json` under the session's
 approved scratch directory. Native FluidSynth/SoundFont rendering, the eight-bar
 native benchmark, controlled audio tuning and human listening were **not run**.
-At that checkpoint **7.4/7.5 were unchecked**. Later 7.4 evidence is below;
-7.5 and MUS-34 acceptance still require human review.
+At that checkpoint **7.4/7.5 were unchecked** and 7.5/MUS-34 acceptance still
+required human review. Later native and human acceptance evidence supersedes those gates.
 
 ## Tuning requirements checkpoint (8.1 only)
 
@@ -398,7 +399,8 @@ Review corrections verified **2026-11-02**, same asset-free environment/commands
 inharmonic, overlapping or arbitrary instrument audio is unproven; every report
 labels polyphonic accuracy **unmeasured**. That synthetic checkpoint produced no
 native hashes or listening samples. The later native checkpoint completed **9.3**;
-**9.4 remains open** for human review. MUS-35 is still partial: Scala/MTS-helper breadth and pre-endpoint
+**9.4 remained open** until the later [human review](audio-listening-review.md).
+MUS-35 is still partial: Scala/MTS-helper breadth and pre-endpoint
 diffusion gating remain follow-up work, with MUS-34 → MUS-35 → MUS-36 → MUS-37 →
 MUS-38 dependencies unchanged. No native acceptance, human listening approval,
 CLAP/FAD or production-quality claim is made.
@@ -427,7 +429,7 @@ openspec validate --all --strict --no-interactive
 
 These results completed only the asset-free cross-lane check. Skips are not native
 evidence. The subsequently approved asset, native proofs and four-workflow results
-are recorded below; human listening review remains pending.
+are recorded below; human listening was still pending at this checkpoint.
 
 ## Risks
 
@@ -511,7 +513,7 @@ all six WAVs byte-identical across runs. Both cold runs miss expression/render
 caches, warm hits both. The test retains timings and fails above **60 s**, rather
 than relaxing the target. Native/binding/asset provenance is checked on each run.
 
-**7.5 remains open**: samples are available for listening, not reviewed by a human.
+**7.5 remained open at this checkpoint**: samples were available, not yet human-reviewed.
 No MUS-34 completion, role recognizability, mastered quality, CLAP/FAD, or broad
 polyphonic tuning certification follows from these signal measurements.
 
@@ -587,7 +589,7 @@ openspec validate --all --strict --no-interactive
 - Flake8 clean; mypy clean (**137 files**, unchanged untyped-body informational
   note); all strict OpenSpec checks and `git diff --check` clean.
 - That continuation completed **1.3, 7.4, 8.2, 8.3, 9.3** only. Its remaining
-  four-workflow work is covered below. **7.5 / 9.4** still require human review;
+  four-workflow work is covered below. **7.5 / 9.4** still required human review then;
   no change to the already-completed historical 11.1 check.
   MUS-35 remains partial and the blocking chain is unchanged. No Linear/push/PR.
 
@@ -769,8 +771,9 @@ boundary tolerances. Other sources explicitly report reconciliation not applicab
 f0 (especially multitrack 19-EDO) is
 **unmeasured**; mono reference results do not certify arbitrary SoundFont notes.
 Role recognizability, subjective groove, complete envelope decay, rhythm F-score,
-notes F1, CLAP/FAD and mastering remain unmeasured. Task **7.5, 9.4, 11.3, 11.4**
-remain unchecked; MUS-35 remains partial (Scala/helpers and diffusion gating), and
+notes F1, CLAP/FAD and mastering were unmeasured at this checkpoint. Tasks
+**7.5, 9.4, 11.3, 11.4** were then unchecked; MUS-35 remains partial
+(Scala/helpers and diffusion gating), and
 MUS-34 → MUS-35 → MUS-36 → MUS-37 → MUS-38 is unchanged. No Linear, push or PR.
 
 ### Cross-lane verification for this continuation
@@ -798,3 +801,67 @@ openspec validate --all --strict --no-interactive
 Only **10.3, 10.4, 11.2** were completed in that checkpoint; its four review tasks
 were left open. No WAV/SF2/cache, runtime freeze, credential or unrelated tooling
 file was part of that commit. See the later [human outcome and task decisions](audio-listening-review.md).
+
+## Final acceptance review (11.4)
+
+Finalized **2026-11-03**, after `ed06d58` (authoritative source-track roles through
+groove processing) and `134ff43` (portable imported-preview evidence path). The final
+reviewer reported **no Critical/Required findings** and authorized task **11.4**.
+Only that checkbox changes in this finalization: **42/42 tasks complete**.
+
+### Cross-lane evidence and final reviewer confirmation
+
+- Implementation verification: asset-free audio/architecture/contract (including
+  installed-wheel checks) **376 passed / 6 optional skips**; full unittest
+  **714 run / 14 optional skips**, no failures. `flake8 aimusic tests ui.py`,
+  `mypy aimusic tests ui.py` (**140 files**, existing untyped-body informational
+  note) and `openspec validate --all --strict --no-interactive` were clean.
+  External logs: `role-review-{asset-free,full,flake8,mypy,openspec}.log`.
+- The final reviewer independently confirmed **376 asset-free passes / 6 optional
+  skips** and **5 native passes / no skips** with the approved GeneralUser GS 2.0.3,
+  FluidSynth 2.6.2 and pyfluidsynth 1.3.4. Native evidence remains external in
+  **`fluidsynth-evidence-afttn_6e`**. Asset-free skips are not native acceptance.
+- The reviewer independently confirmed the authoritative-role regression's exact
+  **[12,252] note-on/off ticks**, rather than name-based groove selection. Complete
+  source-track mappings, canonical `comping` / legacy groove `comp`, inferred
+  imports and expression-cache identity are covered by the role regressions.
+- The **four mixes**, separate original/shifted **timing WAVs**, and generated
+  **listening page** remain byte-identical to their respective pre-fix artifacts.
+  This does not mean original and shifted audio equal one another. The generated
+  page's SHA-256 remains
+  `61554dbae92ce96cd63485c4657804ac5b51695a4bb0b5d23c428307e0aee454`;
+  the earlier manual page has different HTML but the same four embedded mixes.
+- Final review found **no tracked author-machine paths, prohibited SoundFonts,
+  generated WAVs, credentials or submodules** in the delivery. Only documentation
+  and the OpenSpec task file are included in this finalization; unrelated
+  `AGENTS.md` and local tooling changes remain excluded.
+
+### Per-capability acceptance mapping
+
+| Capability | Accepted behavior and evidence |
+|---|---|
+| **Input integrity** (`audio-input-integrity`) | Package digests and pre-groove reconciliation retain planner roles/counts (exact discrete fields, 0.001 BPM / one-tick tolerances); supported imports remain inferred and immutable. `test_render_package.py`, `test_audio_reconcile.py`, `test_audio_imported.py` and `test_audio_entry.py`; authoritative-role **[12,252]** tick probe and generated-package native report. |
+| **Instrument rendering** (`audio-instrument-rendering`) | Wheel-safe profiles, explicit per-role selection/fallback, event-preserving collision-safe aligned stems, click-free rough mix and verified content-based caches. Config/wheel, groove/events, registry/stems/mix/orchestrator tests plus five native tests; all four mixes finite, 48 kHz, active RMS >1e-5, peak <=0.95, cold-repeat/warm WAV bytes equal in the pinned lane. |
+| **Bounded tuning** (`audio-tuning-integrity`) | Proven channel-pitch subset only; MTS/conflicts/lossy fallback reject. Event pitch error <=1 cent; controlled mono coverage 1.0, every tone <=5 cents and mean/P95 <=15 cents; flattened original-target counterexample rejects. `test_audio_tuning.py`, `test_audio_tuning_check.py` and native original/groove/flat reports. Polyphonic f0 remains **unmeasured**. |
+| **Demo workflow** (`audio-demo-workflow`) | Lazy validation-first package/import CLI, optional-audio quarantine, four reproducible sources, separate asset-free/native lanes and portable deterministic embedded players. CLI/architecture/demo-source/docs/listening-review/wheel tests and retained native reports; [human rough-demo and timing acceptance](audio-listening-review.md) is recorded separately from automation. |
+
+Test filenames above are under `tests/`; measured details and reproduction
+commands remain in the preceding sections. Human acceptance does **not** assert
+an audition of every isolated stem, aesthetic groove improvement, full envelope
+decay, mastered quality, full rhythm/notes scores or CLAP/FAD. Mono reference
+measurements do not certify every polyphonic note.
+
+**Handoff:** MUS-34 completion **may be proposed** on this evidence; no Linear
+mutation is made. **MUS-35 remains partial**: Scala/MTS helpers and pre-endpoint
+diffusion gating are still outstanding. Polyphonic f0, later full scorers/CLAP/FAD
+(MUS-36), restyle (MUS-37), mastering/references/breadth (MUS-38), and B4 remain
+outside this milestone. **MUS-34 → MUS-35 → MUS-36 → MUS-37 → MUS-38** is unchanged;
+partial MUS-35 does not unblock later tickets. No push, PR, upload or archive.
+
+### Documentation-only finalization checks
+
+`python -m pytest tests/test_audio_docs.py -q`: **3 passed, 12 subtests**. Strict
+OpenSpec validation, local Markdown link-target checks and `git diff --check` pass. Task-diff checks confirm
+only **11.4** changed from unchecked to checked; OpenSpec reports **42/42** complete.
+The full implementation/native counts above are recorded evidence, not claimed
+as reruns by this documentation-only finalization.

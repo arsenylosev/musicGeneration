@@ -1,6 +1,6 @@
 # Imported MIDI rendering
 
-For the versioned four-source reproduction recipe and current native blockers,
+For the versioned four-source reproduction recipe and bounded native acceptance,
 see [listening demo sources](audio-demo-sources.md).
 
 `render-midi` accepts local type-0/type-1 PPQN MIDI without inventing a Score or
@@ -34,8 +34,9 @@ python -m aimusic.app.cli render-audio outputs/run_<hash> --profile preview --ou
 python -m aimusic.app.cli render-midi song.mid --profile listening --soundfont /path/to/approved.sf2 --out ./audio-listening --no-validate-only
 ```
 
-See [FluidSynth setup and evidence limits](audio-fluidsynth.md). Native listening
-acceptance remains **deferred**, not proven by this command or the preview tests.
+See [FluidSynth setup and evidence limits](audio-fluidsynth.md). The four-demo
+[native listening acceptance](audio-listening-review.md) does not certify arbitrary
+imports; this command or the preview tests alone cannot establish it.
 Imported context is supported by the application backend `native` only (unset
 `AIMUSIC_AUDIO_BACKEND` or set it to `native`); the instrument renderer can still
 be `simple`. Existing explicit package-to-`m2a` dispatch remains supported.
@@ -106,7 +107,8 @@ Exact hashes/metrics are local in `wav-evidence.json`. No native assets were
 used. WAVs remain untracked; no human listening/native acceptance is claimed.
 OpenSpec **10.3–10.4** now have [four-example native evidence](audio-demo-sources.md);
 the later [human rough-demo and timing acceptance](audio-listening-review.md)
-completes task 11.3 without claiming mastered quality; task 11.4 remains open.
+completes task 11.3 without claiming mastered quality. [Final review (11.4)](audio-testing.md#final-acceptance-review-114)
+now completes the change at **42/42** tasks.
 
 ### Verification
 

@@ -112,7 +112,7 @@ human decision to different audio. Generated HTML/WAVs remain **untracked**.
 | **7.5** | Complete: separate Python/native/asset Windows/Linux setup and approved license record in [FluidSynth docs](audio-fluidsynth.md), asset-free checks, retained/presented 12-EDO stems and accepted mixes. Evidence is sufficient to **propose MUS-34 completion**, not mutate its ticket. No claim of a human audition of every isolated stem. |
 | **9.4** | Complete: controlled samples/reports presented and rough set accepted; measured mono-only limits remain explicit. **MUS-35 remains partial**: Scala/MTS-helper breadth and pre-endpoint diffusion gating are outstanding. |
 | **11.3** | Complete: four rough demos accepted, then the separately named original / +12.5 ms timing pair reviewed on 2026-11-02. User could not perceive a difference and explicitly reported “No defects heard” when asked about clipping, stuck/lost notes, truncation or broken timing. No aesthetic groove improvement claimed. |
-| **11.4** | **Open**, as requested; final integration/capability review remains a separate checkpoint. |
+| **11.4** | Complete: final reviewer reported no Critical/Required findings and authorized closure; [cross-lane evidence and per-capability acceptance](audio-testing.md#final-acceptance-review-114) complete **42/42** tasks. |
 
 MUS-34 → MUS-35 → MUS-36 → MUS-37 → MUS-38 is unchanged. No Linear update,
 push, upload, PR, archive, mastered-quality claim or expansion into later stages.
@@ -145,7 +145,8 @@ openspec validate --all --strict --no-interactive
 - Flake8 clean; mypy clean (**140 files**, unchanged untyped-body informational
   note); strict OpenSpec and `git diff --check` passed. At that implementation
   checkpoint OpenSpec was **40/42**, with 11.3 and 11.4 unchecked. The later human
-  timing review completes **11.3**; current progress is **41/42**, with **11.4** open.
+  timing review completed **11.3**, reaching **41/42**. The subsequent
+  [approved final review](audio-testing.md#final-acceptance-review-114) completes **11.4**: **42/42**.
 - Separate approved GeneralUser GS 2.0.3 / FluidSynth 2.6.2 / pyfluidsynth 1.3.4
   native lane: **5 passed, no skips, 10.24 s**. Fresh external evidence is
   `fluidsynth-evidence-sev5rca1`; its generated page is byte-identical to the page
@@ -167,7 +168,8 @@ part of this commit.
 
 ### Timing-review documentation check
 
-This follow-up changes only documentation and task status. Strict OpenSpec
+That timing-review follow-up changed only documentation and task status. Strict OpenSpec
 validation, local Markdown link-target checks, checkbox-diff checks (only 11.3
 changed) and `git diff --check` pass. No runtime/audio tests were rerun for this
-docs-only update; the implementation results above remain historical evidence.
+timing-review docs-only update; the implementation results above remain historical evidence.
+Final-review evidence and documentation checks are recorded in [audio-testing.md](audio-testing.md#final-acceptance-review-114).
