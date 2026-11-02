@@ -261,3 +261,170 @@ class TestFluidSynthIntegration(unittest.TestCase):
             self.assertFalse((out / 'render.json').exists())
             self.assertFalse(list(out.rglob('*.wav')))
             self.assertFalse(list((runner.cache_dir / 'render').rglob('cache_manifest.json')))
+
+    def check_listening_run(self, out, source, frames, package, intent):
+        """Check real output against original intent, not its claimed result flags."""
+        import math
+        from tests.test_audio_demo_sources import pitches
+        from aimusic.audio.scoring.tuning_check import ToneWindow, analyze_tuning
+        report = json.loads((out / 'render.json').read_text())
+        self.assertEqual(json.loads((out / 'stems/cache_manifest.json').read_text())['fingerprint'], report)
+        self.assertEqual(report['application_backend'], {
+            'requested_backend': 'native', 'effective_backend': 'native', 'fallback_reason': None})
+        self.assertEqual(report['effective_config']['render']['backend'], 'fluidsynth')
+        self.assertFalse(report['effective_config']['render']['allow_simple_fallback'])
+        analysis = json.loads((out / f'{source.stem}.analysis.json').read_text())
+        reconciliation = json.loads((out / f'{source.stem}.reconciliation.json').read_text())
+        if package:
+            self.assertEqual(analysis['provenance'], 'planner')
+            self.assertTrue(reconciliation['passed'])
+            self.assertTrue(reconciliation['checks'])
+            self.assertEqual(report['source']['package_hash'], package.package.content_hash)
+            self.assertTrue(all(t['role_source'] == 'structure.json' and t['count_source'] == 'score.json'
+                                for t in analysis['tracks']))
+        else:
+            self.assertEqual(analysis['provenance'], 'inferred')
+            self.assertEqual(reconciliation['status'], 'not_applicable')
+            self.assertEqual((out / 'source.mid').read_bytes(), source.read_bytes())
+        original = MidiEvents.load(source)
+        expressive = MidiEvents.load(out / f'{source.stem}.expressive.mid')
+        signature = lambda events: [(e.tick, e.track, e.message.dict()) for e in events.events]
+        self.assertEqual(signature(expressive), signature(original))  # Explicit no-op groove for this set.
+        index = json.loads((out / 'stems/role_index.json').read_text())['stems']
+        isolated = original.isolate_tracks()
+        self.assertEqual([r['source_track_index'] for r in index], list(isolated))
+        signals, waves, errors = {}, [], []
+        for row, choice in zip(index, report['renderers'], strict=True):
+            stem = MidiEvents.load(out / 'stems' / row['midi'])
+            self.assertEqual(signature(stem), signature(isolated[row['source_track_index']]))
+            self.assertEqual(len(stem.notes), row['note_count'])
+            self.assertEqual(choice['effective_backend'], 'fluidsynth')
+            self.assertEqual(choice['requested_backend'], 'fluidsynth')
+            self.assertIsNone(choice['fallback_reason'])
+            self.assertEqual(choice['soundfont_sha256'], self.manifest['soundfont_sha256'])
+            self.assertEqual(dict(choice['backend']['native_versions']), self.runtime)
+            expected_mode = 'channel_pitch' if intent and intent['edo'] == 19 else 'direct_12'
+            self.assertEqual(choice['required_tuning'], expected_mode)
+            if expected_mode == 'channel_pitch':
+                expected = [n for n in intent['notes'] if n['track'] == row['source_track_index']]
+                for actual, target in zip(pitches(stem), expected, strict=True):
+                    self.assertEqual(actual[:3], (target['track'], target['channel'], target['midi_note']))
+                    hz = 440 * 2 ** (target['edo_step_from_a4'] / 19)
+                    self.assertEqual(target['expected_hz'], hz)
+                    errors.append(abs(1200 * math.log2(actual[3] / hz)))
+                self.assertLessEqual(max(errors), 1)
+                self.assertTrue(choice['tuning_evidence']['notes'])
+            wav = out / 'stems' / row['wav']
+            sidecar = json.loads(Path(str(wav) + '.json').read_text())
+            self.assertEqual(sidecar['frames'], frames)
+            self.assertEqual(sidecar['output_sha256'], file_digest(wav))
+            self.assertEqual(sidecar['required_tuning'], expected_mode)
+            if expected_mode == 'channel_pitch':
+                self.assertEqual(sidecar['tuning']['event_evidence'], choice['tuning_evidence'])
+        for row in index + [{'wav': 'rough_mix.wav'}]:
+            pcm, rate = sf.read(out / 'stems' / row['wav'], always_2d=True)
+            self.assertEqual((len(pcm), rate), (frames, 48000))
+            self.assertTrue(np.isfinite(pcm).all())
+            metrics = self.metrics(pcm)
+            self.assertGreater(metrics['active_rms'], 1e-5)
+            self.assertLessEqual(metrics['peak'], .95)
+            signals[row['wav']] = dict(metrics, frames=frames, sample_rate=rate, finite=True)
+            waves.append(pcm.mean(axis=1))
+        total = sum(waves[:-1])
+        total *= min(1, .95 / float(np.max(np.abs(total))))
+        np.testing.assert_array_equal(waves[-1], total.astype(np.float32))
+        click, rate = sf.read(out / 'stems/click.wav')
+        self.assertEqual((len(click), rate), (frames, 48000))
+        self.assertTrue(np.isfinite(click).all())
+        self.assertGreater(float(np.max(np.abs(click))), 0)
+        self.assertLessEqual(float(np.max(np.abs(click))), .95)
+        tuning = None
+        if intent and intent['windows']:
+            pcm, rate = sf.read(out / 'stems' / index[0]['wav'], always_2d=True)
+            measured = analyze_tuning(pcm.mean(axis=1), rate, tuple(ToneWindow(**w) for w in intent['windows']))
+            measured.require_pass()
+            tuning = measured.to_dict()
+            (out / 'tuning-check.json').write_text(json.dumps(tuning, indent=2, allow_nan=False))
+        return {'signals': signals, 'click_excluded_exactly': True, 'event_payloads_equal': True,
+                'event_pitch_max_abs_cents': max(errors) if errors else None,
+                'polyphonic_f0': 'unmeasured', 'controlled_tuning': tuning,
+                'reconciliation': reconciliation, 'renderers': report['renderers']}
+
+    def test_four_native_listening_workflows(self):
+        import subprocess
+        import sys
+        from aimusic.audio.from_score import from_score
+        root = self.root / 'four-workflows'
+        root.mkdir()
+        commands = []
+
+        def command(*args):
+            argv = [sys.executable, '-m', *map(str, args)]
+            result = subprocess.run(argv, text=True, capture_output=True, check=True)
+            commands.append(argv)
+            (root / f'command-{len(commands)}.log').write_text(result.stdout + result.stderr)
+
+        command('aimusic.app.cli', 'generate', '--seed', 11, '--beats', 4, '--edo', 12,
+                '--tempo-bpm', 120, '--meter', '4/4', '--out', root / 'generated-12')
+        packages = list((root / 'generated-12').glob('run_*'))
+        self.assertEqual(len(packages), 1)
+        package = from_score(packages[0])
+        evidence = {'schema': 'aimusic.native-listening-evidence/1', 'runtime': self.runtime,
+                    'python': platform.python_version(), 'platform': platform.platform(),
+                    'commands': commands, 'workflows': {}, 'human_listening': 'pending'}
+        for name, frames in [('fixture-12', 780000), ('generated-12', 108000),
+                             ('reference-19', 228000), ('multitrack-19', 204000)]:
+            generated = name == 'generated-12'
+            if not generated:
+                command('aimusic.audio.demo_sources', name, '--seed', 11, '--out', root / name)
+            source = package.package.midi_path if generated else root / name / 'source.mid'
+            before = {str(p.relative_to(source.parent)): file_digest(p) for p in source.parent.iterdir() if p.is_file()}
+            intent = None if generated else json.loads((source.parent / 'expected.json').read_text())
+            context = package if generated else from_midi(source)
+            rows, hashes = {}, []
+            for variant, cache in [('cold', 'cache-a'), ('cold-repeat', 'cache-b'), ('warm', 'cache-a')]:
+                out = root / name / variant
+                runner = Orchestrator(self.config, root / name / cache)
+                start = time.perf_counter()
+                runner.run(context, output_dir=out)
+                elapsed = time.perf_counter() - start
+                self.assertEqual(runner.cache_hits, {'expressivization': 1, 'render': 1} if variant == 'warm' else {})
+                self.assertEqual(runner.cache_misses, {} if variant == 'warm' else {'expressivization': 1, 'render': 1})
+                if name == 'fixture-12':
+                    self.assertLessEqual(elapsed, 60)
+                checked = self.check_listening_run(out, source, frames, package if generated else None, intent)
+                digests = {str(p.relative_to(out)): file_digest(p) for p in out.rglob('*') if p.is_file()}
+                hashes.append(digests)
+                rows[variant] = dict(checked, elapsed_sec=elapsed, hits=runner.cache_hits,
+                                     misses=runner.cache_misses, artifact_sha256=digests)
+            # Cold expression metadata intentionally records a new wall clock.
+            # Keep both byte hashes; compare every other byte and every other field.
+            sidecar = f'{source.stem}.expressive.mid.json'
+            self.assertEqual({k: v for k, v in hashes[0].items() if k != sidecar},
+                             {k: v for k, v in hashes[1].items() if k != sidecar})
+            meta = [json.loads((root / name / v / sidecar).read_text()) for v in ('cold', 'cold-repeat')]
+            for row in meta:
+                self.assertIsInstance(row.pop('wall_clock_utc'), str)
+            self.assertEqual(meta[0], meta[1])
+            self.assertEqual(hashes[0], hashes[2], 'warm artifact bytes differ, including provenance')
+            self.assertEqual(before, {str(p.relative_to(source.parent)): file_digest(p)
+                                     for p in source.parent.iterdir() if p.is_file()})
+            evidence['workflows'][name] = {
+                'source': str(source.relative_to(root)), 'source_files_sha256': before,
+                'seed': 11 if name in ('fixture-12', 'generated-12') else None,
+                'runs': rows, 'cold_repeat_wav_equal': True, 'warm_all_artifacts_equal': True,
+                'cold_repeat_metadata_exception': f'{sidecar}: wall_clock_utc only'}
+        # The set is not validated unless unsupported tuning still fails closed.
+        import mido
+        midi = mido.MidiFile(root / 'reference-19/source.mid')
+        midi.tracks[0].insert(0, mido.Message('sysex', data=(0x7e, 127, 8, 2)))
+        midi.save(root / 'unsupported-mts.mid')
+        runner = Orchestrator(self.config, root / 'mts-cache')
+        with self.assertRaisesRegex(ValueError, 'mts') as failure:
+            runner.run(from_midi(root / 'unsupported-mts.mid'), output_dir=root / 'mts-rejected')
+        self.assertFalse(list((root / 'mts-rejected').rglob('*.*')))
+        self.assertFalse(list((root / 'mts-cache').rglob('cache_manifest.json')))
+        evidence['mts'] = {'rejected': True, 'successful_outputs': [], 'diagnostic': str(failure.exception)}
+        self.assertEqual(len(evidence['workflows']), 4)
+        evidence['checks_passed'] = True  # Published only after every assertion above passes.
+        (root / 'evidence.json').write_text(json.dumps(evidence, indent=2, allow_nan=False))

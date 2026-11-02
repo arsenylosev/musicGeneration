@@ -105,7 +105,8 @@ SoundFile read all WAVs successfully. Each source stem and mix: **48 kHz,
 
 Exact hashes/metrics are local in `wav-evidence.json`. No native assets were
 used. WAVs remain untracked; no human listening/native acceptance is claimed.
-OpenSpec **10.3–10.4 remain open** (the full four-example listening set is not delivered).
+OpenSpec **10.3–10.4** now have [four-example native evidence](audio-demo-sources.md);
+human listening acceptance remains pending.
 
 ### Verification
 

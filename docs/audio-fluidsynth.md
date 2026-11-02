@@ -1,7 +1,7 @@
 # Optional offline FluidSynth renderer
 
-Native 12-EDO verification is now available: see the opt-in contract and measured
-7.4 evidence in [audio-testing.md](audio-testing.md). Human listening (7.5) and
+All four 12/19-EDO workflows now have [pinned local native evidence](audio-demo-sources.md),
+including planner reconciliation and controlled f0. Human listening (7.5) and
 MUS-34 acceptance remain open; do not interpret metrics as listening approval.
 
 ## Clean-room provenance and dependency review (2026-11-01)
@@ -127,8 +127,9 @@ invalidates older fixed-normalization/unequal-length caches; filenames are uncha
 Tests check designated nonempty **active windows** have RMS >1e-5, finite samples,
 peak <=0.95, equal frames and fixed tails; exact-zero silent stems, click exclusion,
 stereo handling, padding, rate mismatch, deterministic mix bytes and error cleanup
-are also covered. These are simple/mock signals, not licensed native instruments,
-f0/CLAP/FAD scoring, LUFS mastering, or subjective quality certification.
+are also covered. The asset-free cases use simple/mock signals; the separate native
+lane measures all four demos and controlled mono f0. Neither lane certifies
+CLAP/FAD, LUFS mastering or subjective quality.
 
 ## Installation: Python, native library and asset are separate
 

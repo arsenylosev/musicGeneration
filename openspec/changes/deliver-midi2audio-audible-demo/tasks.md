@@ -1,6 +1,6 @@
 # Tasks
 
-Planning only: all boxes remain unchecked. Start only after a new explicit `/opsx-apply` request. The proposed commits below are critical reviewable checkpoints, not commits already made. No Linear updates, pushes or PR creation are authorized here.
+Implementation is in progress under explicit user approval. The proposed commit names below are planning checkpoints; actual evidence and continuation commits are recorded in `docs/audio-testing.md`. Only checked boxes are delivered. No Linear updates, pushes or PR creation are authorized here.
 
 Each implementation checkbox is a focused slice with its own tests. Write failing regression tests first, implement, then verify without deleting assertions or weakening floors. The named new test files are planned outputs, not existing coverage. `python` below means the interpreter in the chosen virtual environment; this planning shell exposes `python3`, not `python`.
 
@@ -109,18 +109,19 @@ Files: `aimusic/app/cli.py` lazy dispatch, `audio/entry.py`, inferred-input adap
 
 - [x] 10.1 Add audio-owned imported-MIDI context with provenance, tempo/meter maps, programs and tuning evidence; verify type-0/type-1 fixtures render without pretending to have planner reconciliation, while malformed/type-2/unsupported arrangements fail clearly and leave sources unchanged.
 - [x] 10.2 Add lazy `render-midi`, output/SoundFont options and named profiles to both entry paths while preserving validate-only defaults; verify `tests/test_audio_entry.py` and new CLI tests exercise help, successful explicit rendering, missing dependencies, invalid inputs, safe outputs and core-only imports.
-- [ ] 10.3 Add reproducible source generators/commands for the eight-bar fixture, fresh seeded 12-EDO passage, 19-EDO reference tones and short 19-EDO multitrack passage; verify each produces source/expressive MIDI as applicable, stems/mix, config/asset/backend provenance and applicable reconciliation/tuning reports.
-- [ ] 10.4 Document executable local commands, seed/runtime/asset requirements and listening checklist; verify example sources/profiles/expected metrics are versioned while WAVs/SoundFonts/credentials are not, then commit C9 with CLI and packaging smoke tests passing.
+- [x] 10.3 Add reproducible source generators/commands for the eight-bar fixture, fresh seeded 12-EDO passage, 19-EDO reference tones and short 19-EDO multitrack passage; verify each produces source/expressive MIDI as applicable, stems/mix, config/asset/backend provenance and applicable reconciliation/tuning reports.
+- [x] 10.4 Document executable local commands, seed/runtime/asset requirements and listening checklist; verify example sources/profiles/expected metrics are versioned while WAVs/SoundFonts/credentials are not, then commit C9 with CLI and packaging smoke tests passing.
 
 Asset-free continuation (2026-11-02): `aimusic/audio/demo_sources.py` and
 `docs/audio-demo-sources.md` provide three versioned fixture generators plus the
 existing seeded Method A command, exactly the four requested sources. Tests
 exercise byte repeats, independent Hz/windows, expressive event integrity,
 exclusive output publication, real 12-EDO preview stems/mixes and installed-wheel
-commands. **10.3 and 10.4 remain open**: no approved SoundFont/native lane,
-verified production `channel_pitch` capability, four-example native artifacts,
-controlled native tuning reports or human listening evidence. This is not C9
-native acceptance, and no other checkbox or Linear status is changed.
+commands. That checkpoint left **10.3/10.4** open for native evidence. The later
+approved GeneralUser GS 2.0.3 / FluidSynth 2.6.2 / binding 1.3.4 run now retains
+all four workflows; see `docs/audio-native-listening-evidence.json` and
+`docs/audio-testing.md` (four native workflows). No human listening approval is
+claimed; **7.5, 9.4, 11.3 and 11.4 remain open**, with Linear unchanged.
 
 ## 11. Final cross-lane verification — commit C10 / review gate D
 
@@ -129,7 +130,7 @@ Suggested message: `test(audio): record audible demo acceptance and reproducibil
 Scope: integration evidence and any integration-only harness adjustments, not delayed unit coverage. No quality floor may be relaxed to finish this milestone.
 
 - [x] 11.1 Re-run core/architecture, all lightweight audio, lint/type checks and clean-wheel commands from group 1/3 in an asset-free environment; verify no new failures or quarantine violations and record separately any unchanged baseline failures.
-- [ ] 11.2 Reproduce all four examples in the pinned native lane, recording signal metrics, reconciliation, controlled tuning, provenance, cache equivalence and elapsed time; verify unsupported tuning still fails and no skipped native test is presented as acceptance evidence.
+- [x] 11.2 Reproduce all four examples in the pinned native lane, recording signal metrics, reconciliation, controlled tuning, provenance, cache equivalence and elapsed time; verify unsupported tuning still fails and no skipped native test is presented as acceptance evidence.
 - [ ] 11.3 Obtain human listening review of recognizable 12-EDO roles, groove on/off timing and the supported 19-EDO examples; record findings and the explicit limitation that these are rough audible demos, not mastered/CLAP/FAD-scored production audio.
 - [ ] 11.4 Review the final diff and per-capability acceptance mapping, confirm no unrelated user files or prohibited assets are staged, and commit only the integration evidence/harness changes as C10; present MUS-34 completion evidence, partial MUS-35 status and remaining follow-up scope without changing tickets or opening PRs.
 

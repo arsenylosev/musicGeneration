@@ -2,6 +2,11 @@
 
 From `AUDIO_PIPELINE_ARCHITECTURE.pdf` §§8–9.
 
+**Current:** all four pinned native workflows are locally reproduced; see
+[10.3 / 10.4 / 11.2 evidence](#four-native-listening-workflows-103--104--112).
+Human gates **7.5 / 9.4 / 11.3 / 11.4** remain open. Earlier checkpoints below are
+historical measurements, not current blockers or human acceptance.
+
 ## Testing strategy
 
 ### Verification lanes
@@ -139,8 +144,8 @@ PrettyMIDI 0.2.11.post0 and SoundFile 0.14.0:
 
 This evidence is presented for human review of event fidelity (task 5.3). It is
 **not** human approval, native instrument recognizability, monophonic/polyphonic
-f0 measurement, CLAP/FAD scoring or a mastered-audio quality claim. Native asset
-selection, listening gates and C6+ implementation remain outstanding.
+f0 measurement, CLAP/FAD scoring or a mastered-audio quality claim. At that checkpoint native asset
+selection and C6+ work were outstanding; later native results are recorded below.
 
 ## Registry/cache contract checkpoint C5
 
@@ -244,7 +249,8 @@ unit tests independently assert click exclusion and exact-zero silent stems.
 The local detailed report is `c6-smoke.KwN21L/report.json` under the session's
 approved scratch directory. Native FluidSynth/SoundFont rendering, the eight-bar
 native benchmark, controlled audio tuning and human listening were **not run**.
-Tasks **7.4/7.5 remain unchecked**; MUS-34 completion is not proposed.
+At that checkpoint **7.4/7.5 were unchecked**. Later 7.4 evidence is below;
+7.5 and MUS-34 acceptance still require human review.
 
 ## Tuning requirements checkpoint (8.1 only)
 
@@ -253,7 +259,7 @@ labels, channel-local RPN/default/null/partial writes, all nonzero bends, MPE zo
 and MTS evidence, percussion exclusion, and pre-groove/pre-publication admission.
 See [capability policy and migration](audio-renderer-cache.md). The two cache
 metadata tests use an explicitly fake tuning-capable provider; production simple
-and FluidSynth still advertise only `direct_12`.
+and FluidSynth then advertised only `direct_12` (before the native proof below).
 
 Recorded on 2026-11-01 in the existing Python 3.12.12 audio/dev environment:
 
@@ -268,8 +274,9 @@ Recorded on 2026-11-01 in the existing Python 3.12.12 audio/dev environment:
   running before admission. Inverting the RPN default comparison failed tests;
   the original source and its Python bytecode cache were restored before checks.
 
-These are asset-free admission tests, not native tuning/f0 evidence. Only **8.1**
-is complete; **8.2/8.3 remain open**, with no MPE capability promotion.
+These were asset-free admission tests, not native tuning/f0 evidence. At that
+checkpoint only **8.1** was complete; the later bounded channel-pitch proof below
+completed **8.2/8.3** without advertising general MPE.
 
 ## Controlled tuning checker (9.1–9.2 only)
 
@@ -386,9 +393,9 @@ Review corrections verified **2026-11-02**, same asset-free environment/commands
 
 **Evidence limits:** dry controlled mono tones only. Octave-ambiguous, vibrato,
 inharmonic, overlapping or arbitrary instrument audio is unproven; every report
-labels polyphonic accuracy **unmeasured**. No native SoundFont/runtime hashes,
-19-EDO groove-on/off render, or listening samples were produced. **9.3 and 9.4
-remain open**. MUS-35 is still partial: Scala/MTS-helper breadth and pre-endpoint
+labels polyphonic accuracy **unmeasured**. That synthetic checkpoint produced no
+native hashes or listening samples. The later native checkpoint completed **9.3**;
+**9.4 remains open** for human review. MUS-35 is still partial: Scala/MTS-helper breadth and pre-endpoint
 diffusion gating remain follow-up work, with MUS-34 → MUS-35 → MUS-36 → MUS-37 →
 MUS-38 dependencies unchanged. No native acceptance, human listening approval,
 CLAP/FAD or production-quality claim is made.
@@ -415,10 +422,9 @@ openspec validate --all --strict --no-interactive
 - Isolated wheel/profile/demo-source smoke: **1 passed**.
 - Flake8, mypy (133 source files), and strict OpenSpec validation: clean.
 
-These results complete only the asset-free cross-lane check. Skips are not native
-evidence. Tasks 1.3, 7.4–7.5, 8.2–8.3, 9.3–9.4, 10.3–10.4 and 11.2–11.4 remain
-open pending an approved SoundFont, native FluidSynth evidence, complete four-run
-artifacts, and human listening review.
+These results completed only the asset-free cross-lane check. Skips are not native
+evidence. The subsequently approved asset, native proofs and four-workflow results
+are recorded below; human listening review remains pending.
 
 ## Risks
 
@@ -555,9 +561,10 @@ Arbitrary imports and polyphonic audio remain **unmeasured**. Orchestration does
 not automatically ingest arbitrary expected-frequency sidecars or certify f0;
 the native harness explicitly runs `require_pass()` before treating its controlled
 reports as passing. Flattened renders are intentionally retained as rejected
-counterexamples, never labelled validated. Human listening, the complete four
-examples, Scala/MTS-helper breadth, diffusion gating, CLAP/FAD and mastering remain
-open. No 7.5/9.4/10.3/10.4/11.x or Linear completion follows from these metrics.
+counterexamples, never labelled validated. At this checkpoint the complete four
+examples were still pending; they are recorded below. Human listening,
+Scala/MTS-helper breadth, diffusion gating, CLAP/FAD and mastering remain open.
+This checkpoint alone did not complete 7.5/9.4/10.3/10.4/11.x or change Linear.
 
 Final checkpoint verification (native opt-in unset for all asset-free commands):
 
@@ -576,7 +583,144 @@ openspec validate --all --strict --no-interactive
   in this lane are not counted as acceptance; the separate native run has no skips.
 - Flake8 clean; mypy clean (**137 files**, unchanged untyped-body informational
   note); all strict OpenSpec checks and `git diff --check` clean.
-- Completed this continuation: **1.3, 7.4, 8.2, 8.3, 9.3** only. **7.5** retains
-  partial installation/license/artifact work; **9.4, 10.3, 10.4 and outstanding
-  11.x remain open**. No change to the already-completed historical 11.1 check.
+- That continuation completed **1.3, 7.4, 8.2, 8.3, 9.3** only. Its remaining
+  four-workflow work is covered below. **7.5 / 9.4** still require human review;
+  no change to the already-completed historical 11.1 check.
   MUS-35 remains partial and the blocking chain is unchanged. No Linear/push/PR.
+
+## Four native listening workflows (10.3 / 10.4 / 11.2)
+
+Recorded **2026-11-02** after `0eb35c1`, with the additional
+`test_four_native_listening_workflows` harness. No production code changed.
+[Compact machine-readable manifest](audio-native-listening-evidence.json) records
+measured metrics, all WAV hashes, source/package digests, per-run elapsed times,
+render-manifest hashes, runtime bytes and the full evidence digest. Full local
+outputs are retained in **`fluidsynth-evidence-g_19b5em`** under the approved
+external scratch directory (the test prints its absolute path).
+
+Runtime: **Python 3.12.12**, **macOS 27.2 arm64**, **Apple M4 Pro / 14 cores /
+24 GiB RAM**, native **FluidSynth 2.6.2**, binding **pyfluidsynth 1.3.4**. Asset:
+approved **GeneralUser GS 2.0.3**, official source commit
+`684543d5e5efaef08d02be50dcda8d552478fa60`, SF2 SHA-256
+`9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe`.
+Sibling `LICENSE.txt` SHA-256:
+`7b32efefdf95ce38a043799f0659853ddc00fbaa14d8c50f0aca16b9b8b405be`.
+[License terms/caveat](audio-fluidsynth.md#approved-local-only-asset--installed-runtime-2026-11-02)
+remain local-only approval, not a redistribution warranty.
+
+### Reproduce and locate the listening set
+
+Use the existing venv and approved manifest; do not download assets. POSIX shell,
+from the checkout (replace `$SCRATCH` only if using a different external root):
+
+```bash
+SCRATCH=/private/var/folders/85/56fj_6651qbfh0p8_wsy7xcw0000gn/T/opencode
+. "$SCRATCH/musicgeneration-venv/bin/activate"
+export HOMEBREW_PREFIX=/opt/homebrew
+export AIMUSIC_RUN_FLUIDSYNTH_TESTS=1
+export AIMUSIC_FLUIDSYNTH_MANIFEST="$SCRATCH/generaluser-native-manifest.json"
+export AIMUSIC_FLUIDSYNTH_ARTIFACTS="$SCRATCH"
+python -m pytest tests/test_audio_fluidsynth_integration.py -q -s
+```
+
+This exact native invocation passed **5 tests, no skips, 10.29 s**. The test runs
+fresh source-generator subprocesses and the real `Orchestrator` (no fake renderer).
+Its exact source argv/logs are retained in `four-workflows/evidence.json` and
+`command-*.log`. It uses the versioned `listening` profile plus the approved asset
+path and explicit empty groove spec. Render elapsed times exclude generation and
+measurement. Effective config, dry native settings and code/dependency hashes are
+retained in every `render.json`. `runtime.json` records exact invocation/environment,
+hardware and native/binding/license-file paths/hashes; `pip-freeze.txt` is local.
+The earlier [CLI commands](audio-demo-sources.md#listening-commands-approved-native-prerequisites-required)
+remain available for individual renders; the harness adds verified cache evidence.
+
+Under the retained directory, listen to:
+
+| Workflow | Mix (relative path) | Frames at 48 kHz | Cold / cold-repeat / warm seconds | Mix active RMS / peak |
+|---|---|---:|---:|---:|
+| Eight-bar fixture | `four-workflows/fixture-12/cold/stems/rough_mix.wav` | 780000 | 0.888 / 0.872 / 0.351 | 0.021611 / 0.118317 |
+| Fresh Method A, seed 11, 4 beats | `four-workflows/generated-12/cold/stems/rough_mix.wav` | 108000 | 0.676 / 0.660 / 0.281 | 0.031423 / 0.190491 |
+| Controlled reference | `four-workflows/reference-19/cold/stems/rough_mix.wav` | 228000 | 0.199 / 0.194 / 0.089 | 0.009882 / 0.026077 |
+| 19-EDO multitrack | `four-workflows/multitrack-19/cold/stems/rough_mix.wav` | 204000 | 0.522 / 0.519 / 0.220 | 0.022462 / 0.077621 |
+
+`role_index.json` beside each mix names all source stems and isolated MIDI. Sources
+and independent `expected.json` remain one level above `cold/`; the fresh passage
+retains **`generated-12/run_12cb5ba3_8e1cec6bed3c/`**, all six package files, and its
+original flat CLI outputs. `score.analysis.json` retains planner provenance,
+`structure.json` roles and `score.json` counts. `score.reconciliation.json` passes
+original-MIDI comparison with exact discrete fields, **0.001 BPM** and **one-tick**
+boundary tolerances. Other sources explicitly report reconciliation not applicable.
+
+### Measured gates and limits
+
+- All stems/mixes are finite, **48 kHz**, aligned including **0.25 s** release tail,
+  active **0.1–0.4 s RMS >1e-5**, and peak **<=0.95**. The smallest stem RMS is
+  **0.000967488** (fixture drums); largest stem peak **0.086364746** (generated
+  comping). The mix equals the FLOAT sum of source stems with attenuation-only
+  headroom, **excluding the separately generated nonzero click**, exactly.
+- Every cold run misses expression/render caches; warm runs hit both. **All warm
+  output bytes match**, including MIDI, WAV, analysis/reconciliation, renderer
+  provenance, cache manifests and reference tuning reports. Independent cold
+  **WAVs match exactly** too. One intentional cold metadata difference is retained:
+  expressive sidecar `wall_clock_utc`. The test compares every other field/byte,
+  records both hashes, and never rewrites that timestamp to fake equality.
+- Source/expressive/isolated event payloads (ticks, notes, channels, programs,
+  controller state and conductor metadata) match for the explicitly **no-op groove**
+  four-run set. 19-EDO stem pitches are independently reconstructed and compared
+  to **440 × 2^(original step/19)**: max **0.008995¢** reference, **0.011565¢**
+  multitrack, both <=1¢. Every actual 19-EDO renderer is **channel_pitch FluidSynth
+  2.6.2 / pyfluidsynth 1.3.4**, with no fallback, not a simple preview certificate.
+- Reference `cold/tuning-check.json` uses the original `expected.json` windows and
+  existing independent-target checker: **coverage 1.0**, per-tone **0.386501 /
+  1.439118 / 2.647250¢**, mean **1.490956¢**, P95 **2.526436¢**; all unchanged gates
+  pass. Imported expected-frequency sidecars are not automatically read by the
+  product; this harness explicitly calls `require_pass()`.
+- Additional `original/`, `groove/`, `flat/` and `warm-reference/` outputs in the
+  same retained directory reproduce the earlier controlled **+12.5 ms** comparison.
+  Groove f0 coverage **1.0**, mean **1.474312¢**, P95 **2.492787¢**; the deliberately
+  flattened counterexample rejects against unchanged original targets (mean
+  **41.678582¢**, P95 **47.877602¢**). Flat WAVs are diagnostic failures, not accepted
+  demos. Use `original/stems/rough_mix.wav` and `groove/stems/rough_mix.wav` for human
+  timing comparison; no audible groove improvement is asserted.
+- The four-set MTS counterexample still fails with `fluidsynth does not support
+  tuning mts`, **no successful files or complete cache**. Separate native tests
+  also reject ambiguous ownership. Evidence completion is written only after all
+  four workflows and MTS assertions pass.
+- Three mutations of copied real outputs were rejected by the new checks: adding
+  click to mix, replacing planner provenance with inferred, and flattening comping
+  pitch wheels. Sources/production code were not changed. The initial harness red
+  run identified only the intentional cold-expression timestamp; this was resolved
+  by recording that distinction, not relaxing audio floors.
+
+**Human listening is pending.** Polyphonic f0 (especially multitrack 19-EDO) is
+**unmeasured**; mono reference results do not certify arbitrary SoundFont notes.
+Role recognizability, subjective groove, complete envelope decay, rhythm F-score,
+notes F1, CLAP/FAD and mastering remain unmeasured. Task **7.5, 9.4, 11.3, 11.4**
+remain unchecked; MUS-35 remains partial (Scala/helpers and diffusion gating), and
+MUS-34 → MUS-35 → MUS-36 → MUS-37 → MUS-38 is unchanged. No Linear, push or PR.
+
+### Cross-lane verification for this continuation
+
+With native opt-in, manifest, SoundFont and Homebrew-discovery variables **unset**
+(the library remains installed, but this lane does not require or load it):
+
+```bash
+python -m pytest tests/test_architecture.py tests/test_render_package.py -q
+python -m pytest tests/test_audio_*.py tests/test_architecture.py tests/test_render_package.py -q
+python -m unittest discover -s tests -p 'test_*.py'
+flake8 aimusic tests ui.py
+mypy aimusic tests ui.py
+openspec validate --all --strict --no-interactive
+```
+
+- Architecture/contract: **17 passed**, 13 subtests (1.11 s).
+- Lightweight audio including CLI and isolated installed-wheel/profile/demo smoke:
+  **351 passed**, 697 subtests, **6 skipped** (five opt-in native tests and the
+  optional bridge), 32.42 s. These skips are **not** native acceptance evidence.
+- Full unittest: **689 run**, **14 skipped**, no failures (80.262 s).
+- Flake8 clean; mypy clean (**137 files**, unchanged untyped-body informational
+  note). Strict OpenSpec validation passes. Logs remain beside the native evidence.
+
+Only **10.3, 10.4, 11.2** are completed here. The four human-review tasks remain
+open, and no WAV/SF2/cache, runtime freeze, credential or unrelated tooling file
+is part of the commit.

@@ -1,11 +1,11 @@
-# Four reproducible listening-demo sources (v1, asset-free portion)
+# Four reproducible native listening demos (v1)
 
-**OpenSpec 10.3 and 10.4 remain unchecked.** Source generation and simple-preview
-checks are delivered; the complete four-example **native listening set is not**.
-The approved GeneralUser GS/native lane now proves the eight-bar fixture and
-controlled 19-EDO reference (see [native evidence](audio-testing.md)). FluidSynth
-2.6.2 advertises the narrow proven `channel_pitch` subset; no human listening
-approval or complete four-example acceptance is claimed.
+**Local native reproduction is complete** for all four sources below, using the
+approved GeneralUser GS 2.0.3 / FluidSynth 2.6.2 / pyfluidsynth 1.3.4 lane.
+[Machine-readable evidence](audio-native-listening-evidence.json) and
+[commands/results](audio-testing.md#four-native-listening-workflows-103--104--112)
+cover OpenSpec **10.3, 10.4 and 11.2**. This is not human acceptance:
+**7.5, 9.4, 11.3 and 11.4 remain unchecked**. No mastered-quality claim is made.
 
 ## Exactly four sources
 
@@ -134,10 +134,14 @@ python -m aimusic.app.cli render-midi "$DEMO/reference-19/source.mid" --profile 
 python -m aimusic.app.cli render-midi "$DEMO/multitrack-19/source.mid" --profile listening --soundfont "$SF" --out "$DEMO/multitrack-listening" --no-validate-only
 ```
 
-These are reproduction commands, **not a claim that all four examples have been
-accepted**. Missing resources and unsupported tuning fail. The opt-in lane retains
-eight-bar/reference native stems/mixes, asset hashes, dry groove-on/off f0 reports
-and cache evidence; complete four-example artifacts and listening review remain open.
+All four have now been reproduced locally; missing resources and unsupported
+tuning still fail. The opt-in integration test retains each source, three runs
+(cold, independent cold-repeat, warm cache), effective configuration, asset/backend
+provenance and signal checks. The generated passage uses its **RenderPackage**,
+not the inferred MIDI route. Reference f0 is checked against independent original
+Hz; multitrack f0 is **unmeasured**, with event pitch integrity <=1 cent. The test
+also retains separate reference groove-on/off and rejected flattened comparisons.
+These are measured native results, **not human listening acceptance**.
 
 ## Supported source-event subset and independent expectations
 
@@ -225,8 +229,9 @@ installed fixture module and preview CLI. Tests cover all four sources, byte
 repeats, canonical sidecars/digests, independent pitch math, safe refusal,
 serialization/groove/isolation, readable preview audio and microtonal/MTS rejection.
 
-Keep generated MIDI/WAVs, reports, caches, runtime freeze files and all licensed
-assets **local/untracked**. Use `outputs/` (already ignored) or an external scratch
+Keep generated MIDI/WAVs, full reports, caches, runtime freeze files and all licensed
+assets **local/untracked**. Only the compact, path-relative measured JSON summary
+is versioned; it links the full local evidence by SHA-256. Use `outputs/` (already ignored) or an external scratch
 directory. SoundFonts live outside the repository. Never commit credentials,
 weights, WAVs or vendor assets; never add broad ignores for source fixtures or
 OpenSpec. `.gitignore` needs **no change**. Check `git status` before staging;
@@ -266,5 +271,6 @@ multitrack-19  6e76a9b1b7dde2ee97455c6d5044dc94ec2a94be65f9587566e2444b26a29fe8
 Local logs: `demo-sources-red.log`, `demo-sources-mutation.log`,
 `demo-sources-audio.log`, `demo-sources-full.log` in the session's approved scratch
 parent. Preview measurements are in `listening-sources.zR6Ojr/evidence.json` there.
-These are **simple** outputs only. Both tasks stay unchecked; no later task,
-MUS-34/MUS-35 status or native/human acceptance is advanced by this evidence.
+These historical outputs are **simple** only and did not complete native tasks.
+The later native summary above supersedes the former four-workflow blocker;
+human review and MUS-34/MUS-35 completion are still not claimed.

@@ -3,7 +3,8 @@
 **Status:** M0 landed (RenderPackage contract); M1 PR2 entry spine + M1 PR3
 CI-safe deterministic spine (`from_score`, groove, simple render, orchestrator,
 optional m2a bridge). Clean-room FluidSynth dispatch is implemented behind
-`[audio-render]`; native-asset/listening acceptance and generative stages remain open.
+`[audio-render]`; [four pinned native demos](audio-demo-sources.md) are measured
+locally. Human listening acceptance and generative stages remain open.
 **Canonical design:** sibling repo `midi2audio_generative/AUDIO_PIPELINE_ARCHITECTURE.pdf`
 (*From BeatState to Master*, v0.1). This document is the in-repo product digest.
 
