@@ -46,6 +46,207 @@ by the reviewer. The repository does not download, bundle, or commit one.
 
 Human audit: HTML report per run (stems, spectrograms, metrics, prompts).
 
+## Windows verification: simulation, required native CI, optional renderer
+
+The historical macOS renderer measurements below are **not Windows evidence**.
+Hardening adds three distinct forms of Windows verification:
+
+| Lane | Required? | What it establishes |
+|---|---|---|
+| Host-independent ABI/policy simulation | Yes, existing Linux suite | ctypes widths, flags, failure handling, reparse/identity decisions; not real NTFS behavior |
+| `Windows audio (asset-free wheel)` in `ci.yml` | Yes, every main push/PR, no job opt-out | Actual Windows NTFS publication, collision, rollback, Unicode/long paths, simple preview and cold/warm cache; no real FluidSynth audio |
+| `windows-audio-evidence.yml` / `-Renderer` | Explicit opt-in only | Pinned Windows FluidSynth canonical workflows, controlled tuning, output digests and same-machine cold/repeat/warm results; no inherited listening approval |
+
+A repository owner must select **Windows audio (asset-free wheel)** as a required
+branch-protection check. YAML makes the job unconditional and fail-fast but cannot
+configure GitHub branch protection. No workflow dispatch or branch-rule change is
+performed by these scripts.
+
+### Required asset-free Windows job
+
+The runner builds a wheel from an external source snapshot and installs
+`[audio,dev]` into a fresh venv beneath a generated **space + non-ASCII** path.
+It copies the test harness (not `aimusic`) to a separate working directory and
+clears editable/PYTHONPATH/native-asset overrides. `tests.windows_ci` proves the
+loaded package is inside that venv and outside the checkout before running:
+
+- Package-wide imports, excluding unpackaged Gradio UI and optional ML modules.
+  The existing Linux import job still covers UI. No FluidSynth binding may be
+  installed in this lane.
+- `test_architecture.py` against the **loaded package's actual sources**, with a
+  nonempty-source guard, and `test_render_package.py`.
+- `test_audio_windows_native.py`: real local NTFS publication and workflow tests,
+  plus the host-independent ABI and policy substitutes.
+
+The **actual build and checks require a standard-user/restricted token**, not an
+administrator shell. `tests.windows_token` queries the real Windows token before
+build and again inside `tests.windows_ci`: elevation must be false, effective
+Administrators membership false, integrity at most medium. Token API errors or
+optimized Python fail closed. `windows-ci-results.json` records the token facts.
+No Developer Mode, FluidSynth, SoundFont, GPU, supplied credentials, asset downloads,
+or machine execution-policy changes are needed. Package install may use PyPI;
+synth execution and external asset acquisition do not occur.
+
+GitHub `windows-latest` starts as administrator. The separate hosted-only
+`test-windows-audio-as-standard-user.ps1` bootstrap uses that privilege **only for
+setup/cleanup**: it creates an expiring ephemeral account in the localized Users
+group (identified by SID), grants checkout/interpreter/shell read+execute and a
+fresh external scratch tree Modify, then launches the unchanged local script with
+`Start-Process -Credential`. No fallback executes checks as administrator. The
+child gets a fresh environment with explicit external TEMP/TMP; it builds and
+installs its own wheel beneath a space+Unicode path. Git trusts only the supplied
+read-only checkout via a command-scoped `safe.directory`, never a global wildcard.
+
+The random password exists only as a SecureString passed through the credential
+API: never argv, environment, transcript, output, or a credential file. Paths are
+JSON/base64 data carried by `-EncodedCommand`, not executable interpolation.
+The bootstrap captures the child's checked exit status and logs, disables GitHub
+workflow-command interpretation while replaying those logs, removes the account,
+and restores read ACLs in `finally`. Timeout/VM termination can bypass cleanup;
+account expiry and disposal of the hosted VM are the backstop. This is a token
+regression test, **not a sandbox for malicious repository code**. Do not run the
+bootstrap on local or asset-bearing self-hosted machines.
+Local reproduction from a trusted checkout (Python 3.11 x64, local NTFS):
+
+```powershell
+$Python = (Get-Command python).Source  # Or your explicitly selected Python executable.
+$Scratch = [System.IO.Path]::GetTempPath()  # Existing external local NTFS directory.
+# Per-process script permission only; do not change machine execution policy.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-windows-audio.ps1 -Python $Python -ScratchParent $Scratch
+if ($LASTEXITCODE -ne 0) { throw 'Windows wheel verification failed' }
+```
+
+GitHub's bootstrap runs the same script with `pwsh` as the standard user. Local
+users need no setup account or elevation. Every native subprocess exit is checked,
+not only the last command. The fresh external build directory retains
+`commands.log`, `build.json` (source revision and wheel digest), and
+`checks/windows-ci-results.json`; failures retain diagnostics too. Never add that
+directory to Git. Build/install/test logs are not evidence of native renderer
+quality or of passing unrelated Linux jobs.
+
+Local remediation verification on **2026-11-05**, Windows build **10.0.26300**,
+Python **3.11.14 x64**, `pwsh` **7.6.9**, non-administrator token:
+
+- Exact local wheel command above, using `pwsh.exe`: **67 package modules imported**;
+  **56 tests run, 55 passed, 1 narrowly scoped symlink skip** (WinError 1314).
+- Token recorded twice: `elevated=false`, `administrator=false`,
+  `integrity_rid=8192` (medium). All required publication/orchestrator/cache checks
+  passed; `unexpected_skips=[]`, `asset_environment_clean=true`.
+- External build identifier: `7b2cdd99ce844e118d0453fce1e2773d`; wheel SHA-256
+  `fdad16e3df70e5f7c018689c94b08c51e39e2720eadc692a210a894c0ac86edd`.
+- The exact documented Windows PowerShell **5.1** command also passed: **56 tests,
+  55 passed, the same one symlink skip**. External build `5a012611c5a749998688818a02fe68e9`,
+  wheel SHA-256 `08de1419bf1896082d9eba9e7d34308646807efe179306781cf7fb4c7f9fa9b7`.
+- Combined native/architecture/contract/CI run: **72 passed, 1 symlink skip,
+  149 subtests**. Final CI/safety regressions (including the added optimized-Python
+  guard): **18 passed, 78 subtests**. Full-repository flake8 and mypy (**159 files**)
+  and PowerShell parsing passed. In-memory token-gate and
+  old-null-removal mutations failed their regression tests; no mutation remains.
+- Regression tests exercise absent, empty and nonempty asset overrides, exact skip
+  reasons, token rejection, and Unicode/apostrophe/metacharacter argument transport
+  with success and failure exit paths on Windows PowerShell 5.1 and `pwsh`.
+- **Hosted account creation / alternate-credential launch has not been executed
+  locally** (this session has no administrator token). A real `windows-latest` run
+  is still required to verify hosted ACL, logon/profile and provisioning behavior.
+  No hosted CI, Linux job or FluidSynth rendering success is claimed.
+
+Root cause of the isolated end-to-end failure: current `pwsh` can turn
+`[Environment]::SetEnvironmentVariable(name, $null, 'Process')` into a **present
+empty string**; Windows PowerShell 5.1 returned an absent key for the same call.
+`AIMUSIC_SOUNDFONT=''` is correctly rejected by configuration validation, even in a
+simple preview. The harness now uses `Remove-Item Env:...` and the installed runner
+requires all four renderer/asset keys to be absent (not merely unequal to `1`).
+The helper restores the caller's original absent/empty/nonempty state; an explicit
+Win32 empty assignment preserves original empty values even on PowerShell 5.1.
+Production configuration validation is unchanged. See the official PowerShell
+[environment-variable semantics](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_environment_variables)
+and [Start-Process contract](https://learn.microsoft.com/powershell/module/microsoft.powershell.management/start-process).
+
+### Capability probes and mandatory substitutes
+
+Before native tests, `tests.windows_capabilities` separately creates and checks a
+hard link, directory junction, and directory symlink. Only WinErrors **5, 50,
+1314** from a probe mean unavailable; unexpected failures are fatal. Hard links
+are a **required local NTFS capability**, not an optional privileged skip.
+
+Junction/symlink cases skip only their exact test when their probe is unavailable.
+After a successful probe, a failed creation during a test is a real failure, not
+a new skip. Logs show `WINDOWS_CAPABILITY ... exercised/unavailable`, exact skipped
+test IDs, and the result JSON's `substituted` list. The installed-wheel runner
+rejects every skip outside the four named junction/symlink tests. Even those four
+must use exactly `CAPABILITY_UNAVAILABLE <kind>: WinError <code>; substitutes mandatory`,
+with the matching kind and code in **{5, 50, 1314}**. Unknown codes, malformed numbers,
+missing suffixes, trailing text/whitespace/newlines and mismatched kinds fail.
+
+Whether or not links are available, ordinary directory/leaf access-denial,
+identity handoff, substituted-object cleanup, collision and rollback tests must
+run. Mocked reparse attributes and changed identity must prevent content writes
+and public renames. These are **invariant substitutes**, not a claim that an
+unavailable reparse type was exercised. Unsupported volumes cannot turn the
+whole Windows lane green through skips.
+
+### Optional pinned Windows renderer evidence
+
+Dry/preflight uses **only the standard library**, works on any host, reads no
+asset/secret, imports no audio dependency and never asserts renderer success:
+
+```powershell
+& $Python -S -m tests.windows_fluidsynth_evidence --preflight
+```
+
+Enabled prerequisites: Python **3.11 x64**, FluidSynth **2.6.2** and its dependent
+DLLs, pyfluidsynth **1.3.4**, SoundFile **0.14.0** / libsndfile **1.2.2**, an explicit
+approved local SoundFont manifest using the contract below, and a reviewed DLL
+SHA-256. Python patch/build and every queried version are recorded, not inferred
+from the CLI. Other dependency versions remain recorded by `pip-freeze.txt`;
+this is not a fully locked package environment. See [Windows setup](audio-fluidsynth.md#windows-powershell).
+No library or SoundFont is downloaded by the evidence harness.
+
+Set `$Manifest`, `$Dll`, `$DllSha256` and `$EvidenceParent` to reviewed **absolute
+local paths/digest in your shell**, never in a tracked script. The evidence parent
+must already exist outside the checkout. Do not manufacture license approval.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-windows-audio.ps1 -Python $Python -ScratchParent $Scratch -Renderer -Manifest $Manifest -Dll $Dll -DllSha256 $DllSha256 -EvidenceParent $EvidenceParent
+if ($LASTEXITCODE -ne 0) { throw 'Pinned renderer evidence failed; inspect external logs' }
+```
+
+Once selected, missing manifest/approval/asset/DLL, wrong digest/runtime,
+non-Windows/non-x64 Python, assertion optimization, skipped native tests, or failed
+semantic gates are **failures**, not skips. The public `fluid_version` function's
+loaded Windows module must match the supplied DLL identity and digest. All five
+existing `test_audio_fluidsynth_integration.py` tests run unchanged in a child
+process; every canonical workflow includes independent cold, cold-repeat and
+warm-cache runs on this machine. No Windows/macOS PCM-hash comparison is made.
+
+External `windows-fluidsynth-*` evidence contains `runtime.json` (OS build,
+architecture, Python, loaded DLL/binding digests, runtime versions, approved asset
+and manifest digest, commands), `pip-freeze.txt`, `native-tests.log`,
+`worker-results.json`, and `summary.json`. The summary hashes retained outputs
+and links the canonical report's per-workflow cache hits/misses, elapsed times,
+and repetition equality. The existing evidence subtree retains sources, expected
+intent, configs, render/cache manifests, gate reports, WAVs and source command
+logs. A failed test produces no successful summary. Keep the companion build log
+and wheel digest with the evidence. Human listening remains **pending**; CLAP/FAD,
+LUFS mastering, rhythm/note scores and polyphonic f0 are not inferred.
+
+The manual workflow defaults to hosted **preflight only**. Opt-in execution needs
+a trusted, dedicated self-hosted runner labelled `aimusic-fluidsynth-2.6.2`, with
+assets pre-provisioned and a reviewer-protected `windows-audio-evidence`
+environment configured by the owner. Only dispatch trusted, reviewed refs; never
+attach that asset-bearing runner to untrusted PR execution. Absent runner means
+an unscheduled job, not native proof. Inputs enter PowerShell through environment
+variables, not interpolated executable text. No secrets are required and no
+artifacts/media are automatically uploaded. A path is local input, not an asset
+retrieval URL.
+
+**Repository hygiene:** never track generated WAV/MIDI/cache/review bundles,
+SoundFonts, DLLs, credentials, private manifests, pip freezes, or machine-specific
+absolute paths. Reproduction docs use variables; portable reports use relative
+artifact names plus digests. License approval for local assets is not permission
+to publish them or the generated evidence wholesale. Inspect `git diff --check`
+and `git status --short` before staging; static tests are not a license audit.
+
 ## Package integrity / reconciliation regression lane
 
 ```bash

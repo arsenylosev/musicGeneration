@@ -215,6 +215,24 @@ from unittest.mock import patch
 
 @unittest.skipUnless(os.name == 'nt', 'native Windows NTFS lane; ABI tests above run on every host')
 class TestNativeWindowsPublication(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from tests.windows_capabilities import probe
+        with tempfile.TemporaryDirectory() as tmp:
+            cls.capabilities = {kind: probe(kind, Path(tmp)) for kind in ('hardlink', 'junction', 'symlink')}
+        for kind, capability in cls.capabilities.items():
+            state = 'exercised' if capability.available else 'unavailable'
+            print(f'WINDOWS_CAPABILITY {kind}: {state} ({capability.reason})', flush=True)
+        if not cls.capabilities['hardlink'].available:
+            raise AssertionError('Required local NTFS hardlink capability unavailable')
+        print('WINDOWS_INVARIANTS mandatory: native directory pin, identity handoff, collision, '
+              'rollback, mocked reparse rejection; substituted when an optional link is unavailable', flush=True)
+
+    def require_capability(self, kind):
+        capability = self.capabilities[kind]
+        if not capability.available:
+            self.skipTest(f'CAPABILITY_UNAVAILABLE {kind}: {capability.reason}; substitutes mandatory')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -589,6 +607,7 @@ class TestNativeWindowsPublication(unittest.TestCase):
         self.assertEqual(source.read_bytes(), original)
 
     def test_junction_between_preflight_and_first_retain_never_receives_content(self):
+        self.require_capability('junction')
         from aimusic.audio.publication_windows import WindowsWorkspace
         from aimusic.audio.windows_native import WindowsAPI
         target = self.base / 'junction-disclosure-target'
@@ -619,6 +638,7 @@ class TestNativeWindowsPublication(unittest.TestCase):
                 self.out.rmdir()  # Remove our junction only, never its target.
 
     def test_failed_handoff_cleanup_keeps_only_empty_owned_recovery_record(self):
+        self.require_capability('junction')
         from aimusic.audio.publication_windows import WindowsWorkspace
         from aimusic.audio.windows_native import WindowsAPI
         target = self.base / 'junction-empty-recovery-target'
@@ -784,54 +804,22 @@ class TestNativeWindowsPublication(unittest.TestCase):
                 self.assertEqual(source.read_bytes(), before)
 
     def _install_junction(self, link, target):
-        import ctypes as c
-        import struct
-        from aimusic.audio.windows_native import DWORD, HANDLE, BOOL, WRITE, WindowsAPI
-        api = WindowsAPI()
-        control = api.kernel.DeviceIoControl
-        control.argtypes = [HANDLE, DWORD, HANDLE, DWORD, HANDLE, DWORD, c.POINTER(DWORD), HANDLE]
-        control.restype = BOOL
-        substitute = ('\\??\\' + str(target)).encode('utf-16-le')
-        printed = str(target).encode('utf-16-le')
-        paths = substitute + b'\x00\x00' + printed + b'\x00\x00'
-        payload = struct.pack('<IHHHHHH', 0xa0000003, len(paths) + 8, 0,
-                              0, len(substitute), len(substitute) + 2, len(printed)) + paths
-        buffer, returned = c.create_string_buffer(payload), DWORD()
-        with api.open(link, WRITE) as handle:
-            result = control(handle.value, 0x900a4, buffer, len(payload), None, 0, c.byref(returned), None)
-            if not result:
-                raise api.error('FSCTL_SET_REPARSE_POINT', c.get_last_error())
+        from tests.windows_capabilities import install_junction
+        install_junction(link, target)
 
-    def test_native_junction_destinations_are_refused_without_touching_target(self):
-        import ctypes as c
-        import struct
+    def _check_link_destinations(self, kind):
         from aimusic.audio.publication import pin_output
-        from aimusic.audio.windows_native import DWORD, HANDLE, BOOL, WRITE, WindowsAPI
-        api = WindowsAPI()
-        control = api.kernel.DeviceIoControl
-        control.argtypes = [HANDLE, DWORD, HANDLE, DWORD, HANDLE, DWORD, c.POINTER(DWORD), HANDLE]
-        control.restype = BOOL
-        target = self.base / 'junction-target'
+        target = self.base / (kind + '-target')
         target.mkdir()
         (target / 'KEEP').write_bytes(b'UNRELATED')
         for position in ('root', 'ancestor', 'leaf'):
             with self.subTest(position=position):
-                link = self.base / ('junction-' + position)
-                link.mkdir()
-                substitute = ('\\??\\' + str(target)).encode('utf-16-le')
-                printed = str(target).encode('utf-16-le')
-                paths = substitute + b'\x00\x00' + printed + b'\x00\x00'
-                payload = struct.pack('<IHHHHHH', 0xa0000003, len(paths) + 8, 0,
-                                      0, len(substitute), len(substitute) + 2, len(printed)) + paths
-                buffer, returned = c.create_string_buffer(payload), DWORD()
-                with api.open(link, WRITE) as handle:
-                    result = control(handle.value, 0x900a4, buffer, len(payload), None, 0, c.byref(returned), None)
-                    if not result:
-                        error = c.get_last_error()
-                        if error in (5, 50, 1314):
-                            self.skipTest(f'Native junction capability unavailable (WinError {error}); '
-                                          'mandatory mocked reparse and native directory-access tests still run')
-                        raise api.error('FSCTL_SET_REPARSE_POINT', error)
+                link = self.base / (kind + '-' + position)
+                if kind == 'junction':
+                    link.mkdir()
+                    self._install_junction(link, target)
+                else:
+                    link.symlink_to(target, target_is_directory=True)
                 try:
                     output = link if position == 'root' else link / 'new-output'
                     if position == 'leaf':
@@ -840,10 +828,18 @@ class TestNativeWindowsPublication(unittest.TestCase):
                     else:
                         with self.assertRaisesRegex(ValueError, 'reparse'):
                             with pin_output(output):
-                                self.fail('Junction component was admitted')
+                                self.fail('Reparse component was admitted')
                     self.assertEqual({p.name: p.read_bytes() for p in target.iterdir()}, {'KEEP': b'UNRELATED'})
                 finally:
-                    link.rmdir()  # Remove our junction, never traverse its target.
+                    link.rmdir()
+
+    def test_native_junction_destinations_are_refused_without_touching_target(self):
+        self.require_capability('junction')
+        self._check_link_destinations('junction')
+
+    def test_native_symlink_destinations_are_refused_without_touching_target(self):
+        self.require_capability('symlink')
+        self._check_link_destinations('symlink')
 
 
 class TestWindowsBackendPolicy(unittest.TestCase):

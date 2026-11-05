@@ -138,8 +138,11 @@ CLAP/FAD, LUFS mastering or subjective quality.
 
 ## Installation: Python, native library and asset are separate
 
-These Windows/Linux instructions have not been executed here; the measured
-runtime below is macOS. The lightweight lane only needs `.[audio,dev]`.
+The historical measured renderer runtime below is macOS. Native Windows
+**asset-free publication** and **optional pinned renderer evidence** are separate
+lanes; see [Windows verification](audio-testing.md#windows-verification-simulation-required-native-ci-optional-renderer).
+The required lane only installs `.[audio,dev]` and does not require a synth or
+asset. A passing publication job does not establish Windows FluidSynth sound.
 
 ### Linux (Debian/Ubuntu example)
 
@@ -160,21 +163,47 @@ user-selected asset's source URL, license text/permission, version and SHA-256.
 
 ### Windows (PowerShell)
 
+For asset-free verification, use the wheel-building PowerShell command in
+[audio-testing.md](audio-testing.md#required-asset-free-windows-job). It needs no
+administrator rights or Developer Mode and exercises real NTFS, not API
+simulation. Use a trusted local NTFS directory; network shares and reparse roots
+remain unsupported by [publication policy](audio-publication-safety.md).
+
+For **optional renderer evidence**, separately obtain an official
+[FluidSynth 2.6.2 release](https://github.com/FluidSynth/fluidsynth/releases/tag/v2.6.2)
+matching Python 3.11 x64, including dependent DLLs. Review the binary source and
+record its SHA-256 before running it. A CLI executable alone is not the shared
+library. No Windows binary or SoundFont is bundled or acquired by our scripts.
+
+Pinned pyFluidSynth 1.3.4 unconditionally registers **`C:\tools\fluidsynth\bin`**
+on Windows, so that upstream-required directory must exist and contain the
+trusted release DLLs. It is an upstream search-path requirement, not a tracked
+author-machine path. Provision it separately using your normal security policy;
+**the required asset-free CI job never creates or needs it**. Keep DLLs and the
+working directory trusted (the binding also searches the working directory).
+Do not install the unrelated PyPI package named `fluidsynth`.
+
+The optional script builds a fresh wheel/venv, installs `[audio-render,dev]` and
+SoundFile 0.14.0, and requires the queried libsndfile version 1.2.2. Provide the
+approved asset manifest, exact DLL path and reviewed digest as shell variables;
+the enabled lane fails on missing/wrong prerequisites instead of skipping.
+Other Python packages are recorded, not fully version-locked. Preflight needs
+only Python and no asset, native library, package installation, or secret:
+
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[audio-render]"
-$env:AIMUSIC_SOUNDFONT = 'C:\Assets\your-approved.sf2'
-Get-FileHash $env:AIMUSIC_SOUNDFONT -Algorithm SHA256
+python -S -m tests.windows_fluidsynth_evidence --preflight
 ```
 
-Separately obtain an official [FluidSynth release](https://github.com/FluidSynth/fluidsynth/releases)
-matching Python's architecture, with its dependent DLLs. For pinned pyFluidSynth
-1.3.4, place the release's DLLs in **`C:\tools\fluidsynth\bin`**: that binding
-unconditionally registers this directory on Windows, so it must exist. Keep DLLs
-in trusted locations and run from a trusted working directory (the binding also
-searches it). A CLI executable alone is not the required shared library. Do not
-install the unrelated PyPI package named `fluidsynth` instead of `pyfluidsynth`.
+The wrapper identifies the actual DLL containing the binding's public
+`fluid_version` function via
+[GetModuleHandleExW (FROM_ADDRESS, UNCHANGED_REFCOUNT)](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexw)
+and [GetModuleFileNameW](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulefilenamew).
+It checks file identity and SHA-256 against your explicit DLL input; the API
+version alone cannot identify one of two same-version binaries. OS build,
+architecture, Python, binding/DLL/libsndfile versions, asset digest, commands,
+outputs and same-machine cache/repetition evidence remain in **external** logs.
+This is not new Windows listening approval or cross-platform byte identity.
+Never track runtime paths, DLLs, SoundFonts, generated WAVs, credentials or caches.
 
 ### Opt-in selection
 

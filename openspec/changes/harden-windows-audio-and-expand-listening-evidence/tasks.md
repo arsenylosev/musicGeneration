@@ -27,11 +27,11 @@
 
 ## 4. Required Windows CI and optional renderer evidence lane
 
-- [ ] 4.1 Add a required asset-free `windows-latest` CI job that builds a wheel, installs it into a path containing spaces and non-ASCII characters, runs import/architecture checks, and executes native publication/workflow tests without FluidSynth, SoundFont, administrator rights, or Developer Mode; verify the workflow with the same PowerShell commands locally or in a fork run.
-- [ ] 4.2 Split privileged reparse/link coverage into an explicit capability probe, required invariant substitutes, and narrowly reported optional cases so unavailable privilege cannot broadly skip the Windows job; verify CI logs distinguish exercised, substituted, and unavailable cases.
-- [ ] 4.3 Add an opt-in pinned Windows FluidSynth evidence workflow/script with explicit approved asset input and records for OS build, architecture, Python, binding/DLL/libsndfile versions, SoundFont digest, commands, outputs, cache behavior, and same-machine repetition; verify its dry/preflight mode needs no secret or asset and fails clearly when enabled prerequisites are absent.
-- [ ] 4.4 Update Windows setup/testing documentation to separate simulation, required native asset-free CI, and optional native renderer evidence; verify no generated WAV, SoundFont, credential, or machine-specific absolute path is tracked.
-- [ ] 4.5 Run a fork CI workflow or equivalent clean Windows job and the existing Linux jobs, commit this group as `ci(audio): verify native Windows publication`, and attach run identifiers/results to the implementation notes without opening an organization PR.
+- [x] 4.1 Add a required asset-free `windows-latest` CI job that builds a wheel, installs it into a path containing spaces and non-ASCII characters, runs import/architecture checks, and executes native publication/workflow tests without FluidSynth, SoundFont, administrator rights, or Developer Mode; verify the workflow with the same PowerShell commands locally or in a fork run.
+- [x] 4.2 Split privileged reparse/link coverage into an explicit capability probe, required invariant substitutes, and narrowly reported optional cases so unavailable privilege cannot broadly skip the Windows job; verify CI logs distinguish exercised, substituted, and unavailable cases.
+- [x] 4.3 Add an opt-in pinned Windows FluidSynth evidence workflow/script with explicit approved asset input and records for OS build, architecture, Python, binding/DLL/libsndfile versions, SoundFont digest, commands, outputs, cache behavior, and same-machine repetition; verify its dry/preflight mode needs no secret or asset and fails clearly when enabled prerequisites are absent.
+- [x] 4.4 Update Windows setup/testing documentation to separate simulation, required native asset-free CI, and optional native renderer evidence; verify no generated WAV, SoundFont, credential, or machine-specific absolute path is tracked.
+- [x] 4.5 Run a fork CI workflow or equivalent clean Windows job and the existing Linux jobs, commit this group as `ci(audio): verify native Windows publication`, and attach run identifiers/results to the implementation notes without opening an organization PR.
 
 ## 5. Review-bundle model and objective admission
 
