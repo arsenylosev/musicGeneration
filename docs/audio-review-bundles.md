@@ -1,0 +1,293 @@
+﻿# Review bundle graph and objective admission (schema 1)
+
+This is the group-5 model/admission layer, not the later page generator, findings
+collector, or evidence of a new human review. The historical four-demo tool and
+its [recorded acceptance](audio-listening-review.md) remain separate.
+
+## Immutable graph and custody
+
+`aimusic.audio.review_bundle` uses frozen dataclasses. Nested configuration,
+backend and runtime JSON is copied into read-only mappings/tuples. Constructors
+and `from_bytes` reject unknown/missing fields, invalid enums, non-finite numbers,
+mutable typed sequences, malformed digests and unsafe paths. The shared
+`review_identity` validator checks nested effective config/backend/runtime shapes
+without coercion or defaults, and is used before candidate payload reads too.
+
+```text
+source files + identity -> SourceNode digest
+                             |
+render manifest + all reports + effective config/backend/runtime/assets
+                             -> RenderNode digest + explicit machine metrics
+                                           |
+render WAV digest + sample trim bounds + gain + output WAV digest
+                             -> PresentationNode digest
+                                           |
+                             opaque Stimulus -> purpose Panel
+                                           |
+                             immutable ReviewBundle digest
+                                           |
+             external assignment reference -> external finding reference
+```
+
+- `SourceNode` binds the MIDI file bytes to its identity. RenderPackage sources
+  retain the package/source aggregates and payload files, not just the MIDI.
+- `RenderNode` names the exact source node, render manifest, report files,
+  effective config, requested/effective renderer, fallback, capabilities, backend
+  code/version, runtime dependency versions, and SoundFont SHA-256 (or explicit
+  `null` for an asset-free backend). The manifest additionally retains the
+  orchestrator's full code inventory. No licensed asset is copied or discovered.
+- `PresentationNode` links its source WAV to render evidence. The output uses an
+  opaque `media/s<hex>.wav` path; it cannot overwrite the source path. Only explicit
+  half-open sample trim bounds and finite positive gain (maximum 16) are modeled.
+  Performing/checking the transform, stripping ancillary metadata, and whole-bundle
+  publication belong to the subsequent generation layer; this layer does not
+  certify transformed samples merely because a transform was declared.
+- Schema 1 fixes panel sizes: canonical 4, roles 4, parity 2, timing 2, tuning 2.
+  Exactly 14 unique exposures are required. The tuning pair must have one measured
+  valid result and one failed tuning result with a passed negative-control gate.
+  Exact fixture selection and balanced A/B generation are subsequent tasks.
+- The **whole provenance manifest is private**, not a page data source. Its
+  `blind_map` references a separate file under `private/`; it never embeds that
+  mapping. `PrivateBlindMap` must cover precisely the stimulus set and label the
+  negative member `flattened-12-calibration-control`. Keep both graph and map away
+  from reviewers until authorized unblinding. Blinding cannot prevent inference
+  from audible musical content.
+- `public_projection(root=..., expected_sha256=...)` refuses rejected gates and
+  verifies all referenced bytes and the private map before returning only bundle
+  digest, purpose panels, opaque IDs and media references. The new generation
+  layer must use it, not directly serialize the private graph. It returns data,
+  not HTML, and does not modify the historical four-demo page.
+
+Every path is a portable, nonempty relative path. Traversal, absolute paths, URLs,
+backslashes, empty components, percent escapes, Windows device names, controls,
+trailing dots/spaces and alternate streams are rejected. Readers reject
+nonregular files and link/reparse components, including ancestors, and bound each
+file to 32 MiB. Candidate audio is bounded to 120 seconds. Cumulative exposure/media
+budgets and create-only complete-tree publication are enforced by the subsequent
+assembler, not promised by these read-only models.
+
+Use trusted local roots. These readers check identities, bounded reads and final
+hashes; they do **not** claim retained-handle protection against hostile concurrent
+ancestor replacement. The shared [publication contract](audio-publication-safety.md)
+is still the authority for writing any future bundle.
+
+### Strict render provenance (same native manifest shape)
+
+`RenderNode` validates nested identities as well as its outer fields. The same
+non-coercing validator runs immediately after the admission reader pins
+`render.json`, before reading its cache or audio payloads. It does not load a
+renderer or normalize/fill in missing provenance. Mappings remain deeply frozen;
+the serialized field names and native manifest pair-array format are unchanged.
+
+- Effective config requires `render`, all seven boolean `stages`, and the sanitized
+  `paths` object. Render requires a backend, positive integer sample rate (at most
+  768000), boolean fallback policy, routing map, nonnegative release tail and
+  positive mix peak at most 0.95. Only the existing optional config sections and
+  their declared fields are accepted. An enabled expressivization stage requires
+  its effective groove spec. No implicit config defaults are supplied here.
+- Application backend requires exactly `requested_backend`, `effective_backend`
+  (`native` or `m2a`) and explicit `fallback_reason`. Unchanged selections require
+  a null reason; changed selections require nonempty text.
+- Runtime requires exactly `python`, `platform`, and a nonempty dependency map.
+  Every dependency name/version is bounded nonempty text. Versions are strings,
+  not coerced numbers; native revision strings and `not-installed` dependency
+  sentinels remain valid (no invented semantic-version requirement).
+- Every renderer requires the native selection, backend, asset, source-track/role,
+  and tuning-evidence fields. The backend requires name/version, lowercase SHA-256
+  code digest, unique nonempty native-version pairs, settings pairs, and capabilities.
+  Settings values are finite numbers or bounded strings, not booleans/null.
+  Capabilities require a revision, boolean instrument-fidelity flag and unique
+  nonempty tuning modes (`direct_12`, `channel_pitch`, or `mts`).
+- Backend name must equal effective selection; required tuning must be supported;
+  requested selection must match config routing. A renderer fallback must be
+  explicitly allowed and target `simple`. FluidSynth requires a SoundFont digest;
+  the asset field otherwise remains explicit null-or-digest, preserving manifests
+  that record a selected asset even with a simple/fallback renderer. Channel-pitch
+  FluidSynth additionally requires well-typed pitch-event evidence.
+
+All identity text is limited to 4096 characters without controls. Required values
+cannot be missing/null, except explicitly nullable fields above. JSON booleans
+are never accepted as numeric/string identities. Unknown identity fields require
+an explicit schema decision instead of silently surviving as unchecked JSON.
+These are structural/consistency checks, not independent proof of honest version
+claims or permission to bypass the objective admission gates.
+
+### Canonical identity and external references
+
+Canonical JSON is UTF-8 with ASCII escapes, sorted object keys, compact separators,
+no whitespace/newline, and no NaN/Infinity. Array order remains meaningful (notably
+panel/assignment order). SHA-256 is lowercase, unprefixed, 64 hex characters.
+Identity is over canonical record bytes, without a self-hash field; `sha256` on
+graph records is derived. `FileRef.sha256` instead hashes the exact referenced file
+bytes, independent of whether the file happens to be JSON.
+
+`ReviewBundle.from_bytes(data, expected_sha256=trusted_digest)` validates metadata
+identity. `bundle.verify(root, expected_sha256=trusted_digest)` additionally checks
+every referenced file's exact size/digest and the private map. Save the approved
+bundle digest separately. Hashes detect change relative to a trusted identity;
+they are not signatures or proof of honest authorship. Rewriting every payload
+and hash produces a *different* identity, not a repair of the original review.
+
+Assignment and finding records are **external** so their addition never changes
+the bundle digest or introduces a hash cycle. The bundle declares safe assignment
+and finding directories. `AssignmentReference` links bundle digest, pseudonym,
+external document FileRef, and exact stimulus/media digests; `validate_bundle`
+checks those links. `ExternalFindingReference` links bundle, assignment-reference
+digest, pseudonym and another FileRef; `validate_assignment` checks those links.
+Verify each external document with `document.read_verified(root)` before using it.
+These are provenance references, not completed responses: append-only response
+schemas, required judgments, authorized unblinding and acceptance counts are later
+work. No field in this bundle grants human approval.
+
+## Candidate selection and admission
+
+`aimusic.audio.review_admission.read_candidate(root, request)` consumes an explicit
+`CandidateRequest`: relative output/source paths, source kind, independently
+approved source identity, exact render-manifest **and cache-manifest** digests,
+expected backend and expected asset digest. `cache_manifest_sha256` is required
+and keyword-only: it anchors output bytes independently of render configuration.
+Do not learn expected values from an untrusted output and
+then call that verification. Package identity uses the full native manifest source
+mapping (`midi_sha256`, `source_hash`, `package_hash`, `structure_sha256`,
+`tuning_sha256`); imported identity uses `midi_sha256` and `input_kind`.
+
+The reader makes no network/asset-discovery call, allocates no synth, and writes no
+media. It reads bounded source bytes into private temporary files for the existing
+package/import validators. Before returning an admitted candidate it:
+
+1. Pins both manifests to independently approved digests; verifies the complete
+   cache manifest/key/fingerprint/output set, every output digest, and the
+   duplicate `stems/render.json` against the top-level manifest. Before output
+   payload reads it rejects case-fold aliases, missing/extra entries, more than
+   64 declared outputs or more than 128 MiB in the stems directory. Repeated
+   reads and final rechecks consume a 512 MiB reader work budget.
+2. Recomputes source identity and import analysis or RenderPackage reconciliation
+   using the existing validators. Analysis, render-source declarations and stored
+   reconciliation must agree exactly. Imports are explicitly `not_applicable` for
+   planner reconciliation, never evidence of planner agreement.
+3. Replays the declared groove through the existing pure event transform and
+   compares expressive MIDI events and its diff report. It compares every isolated
+   stem event and source-track/role/channel/note-count association. It checks role
+   index membership, selected tuning capability, requested/effective backend,
+   absence of fallback, asset digest, native/backend versions/code and per-stem
+   settings/sidecars. Channel-pitch event evidence is reconstructed independently.
+4. Reads allowed metadata-free WAV containers. All stems, rough mix and click must
+   be finite, aligned in sample rate/frame horizon, at or below the configured peak
+   and caller ceiling (never above 0.95), and above the expected RMS floor (default
+   `1e-5`). A stem's expected signal window spans its first onset to last release;
+   this is a gross non-silence gate, not a per-note audibility scorer. It also checks
+   the exact float rough sum of source stems, with attenuation and click excluded.
+5. Applies controlled-tuning admission when explicit original intent is supplied,
+   then rechecks all referenced bytes. Missing/failed evidence raises an error;
+   no partially admitted candidate or public page is returned.
+
+`read_native_candidate(root, report_ref, workflow=..., run=...,
+expected_backend=..., expected_asset_sha256=...)` adapts the existing
+`aimusic.native-listening-evidence/1` four-workflow report. The independently pinned
+report must identify every retained source/run artifact by digest, including
+both render and cache manifests. The adapter checks those bytes, derives the pinned
+request, runs the same admission reader, and retains the report as another private
+reference. It does not inherit the
+report's `checks_passed` or `human_listening` value. The `reference-19` workflow
+requires its retained original intent. New harness reports emit POSIX relative
+paths on every platform. Only inside this pinned legacy-report adapter, retained
+Windows relative paths such as `stems\cache_manifest.json` are converted to `/`.
+Drive-relative/absolute, UNC/root, mixed separators, dot/traversal and empty
+components are rejected **before** normalization; the usual portable-path checks
+then apply. Normalized and casefold aliases are rejected as a collection. Report
+bytes/digests are unchanged, and all returned FileRefs remain POSIX-only. This
+compatibility rule does not relax the general bundle/candidate path contract.
+A native runtime/asset report is evidence
+about that run only, not a cross-platform WAV hash requirement.
+
+The asset-free `simple` backend may be explicitly selected for tests/previews.
+That admission proves the recorded gates only; it does not promote the simple
+renderer to FluidSynth instrument/controller fidelity. Renderer expectations
+cannot silently fall back to simple. Report/scorer values are not inferred from
+successful file creation, playback or a human's listening answers.
+
+## Four-state metrics and controlled tuning
+
+All required metrics are explicit: `CLAP`, `FAD`, `LUFS`, `rhythm_f_score`, `note_f1`,
+`polyphonic_f0`, the common gates above, reconciliation, controlled tuning and the
+negative-control gate. A missing/duplicate record is invalid.
+
+| State | Meaning |
+|---|---|
+| `passed` | A named machine method ran, with digest-linked evidence. |
+| `failed` | A named machine method ran and failed; evidence is retained. |
+| `unmeasured` | Not implemented/run here; no number, method or fake zero. |
+| `not_applicable` | Explicit reason why that metric/gate does not apply. |
+
+Measured records require a method and evidence references. Human/listening methods
+cannot supply machine results. The admission reader always marks the unfinished
+six scorer metrics `unmeasured`; controlled monophonic f0 cannot set polyphonic
+f0, note F1, rhythm F-score, CLAP, FAD or LUFS to passed. Applicable common gates
+must pass. A failed controlled-tuning result is allowed **only** for a privately
+identified calibration control whose separate negative-control gate passes.
+
+Controlled admission uses every original declared steady mono window, unchanged
+19-EDO frequency targets, and the original sample rate. It validates the original
+MIDI note set/timing/pitch against intent, rejects polyphony or out-of-note windows,
+and refuses dropped, changed, silent, truncated, low-confidence or unmeasurable
+windows. Frequency estimation remains target-independent.
+
+**Floor interpretation:** existing `TuningCheckConfig` is retained unchanged:
+per-tone absolute error **<=5 cents** (stricter than 15), aggregate mean and P95
+**<=15 cents**, inclusive. Configuration may only tighten these floors. There is
+one frequency observation per declared steady window; the per-tone P95 is that
+single absolute error, not a claim about frame-by-frame tracking over a whole
+performance. Coverage must be complete; a good subset cannot hide a bad tone.
+
+For the negative member, original MIDI is retained separately and the flattened
+input must equal it with only pitch wheels zeroed. Targets are never replaced by
+nearest 12-TET values. The control must be fully measurable, fail acceptance, and
+**exceed the aggregate P95 floor**; silence or merely missing evidence does not
+count as successful calibration. Existing `tuning-check.json`, when present, must
+match recomputed measurements. The control is synthetic calibration, not a failed
+production demo and not proof that a reviewer will hear the difference.
+
+## Claims and historical non-transfer
+
+These artifacts are **rough mixes**, not mastered or production-quality audio.
+Peak/alignment/event checks do not measure perceptual quality. The fixed release
+tail does not guarantee full decay; dry synthesis does not establish mix/mastering
+quality. Controlled mono evidence does not certify arbitrary instrument notes,
+polyphonic f0, aesthetic groove improvements, or general human discrimination.
+
+Any change to source, rendered/presented bytes, config, backend, runtime, asset or
+transform changes a node and therefore bundle identity. Earlier listening approval
+is historical only, even if the music sounds similar. New bundles start with no
+human findings; neither an agent nor a gate supplies a review. Disagreements,
+incomplete responses and counts must remain separate in the later reporting layer.
+
+## Validator-checked example and tests
+
+[audio-review-bundle-example.json](audio-review-bundle-example.json) is a **schema-only
+synthetic fixture**, not evidence of an actual render, valid media or a human
+review. Its small placeholder file digests intentionally do not constitute a
+distributable bundle. The test validates it using the exact public schema parser:
+
+```python
+from pathlib import Path
+from aimusic.audio.review_bundle import ReviewBundle
+
+bundle = ReviewBundle.from_bytes(Path("docs/audio-review-bundle-example.json").read_bytes())
+assert bundle.to_bytes() == ReviewBundle.from_bytes(bundle.to_bytes()).to_bytes()
+# For a real retained bundle: bundle.verify(root, expected_sha256=approved_digest)
+```
+
+Focused verification (activated environment, no native asset required):
+
+```text
+python -m pytest tests/test_audio_review_bundle.py tests/test_audio_review_admission.py tests/test_audio_tuning_check.py -q
+flake8 aimusic tests ui.py
+mypy aimusic tests ui.py
+```
+
+Tests include malformed schemas, deep immutability, canonical round trips,
+metadata/file tampering, wrong hashes/backends/assets, private-map containment,
+public refusal, package reconciliation, meaningful groove replay, altered routing
+and sidecar settings, explicit unmeasured states, and positive/negative/missing/
+wrong-target tuning. The synthetic native adapter test is **simulation only**; it
+is not fresh native Windows FluidSynth or human-listening evidence.

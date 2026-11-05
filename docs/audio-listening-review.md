@@ -1,5 +1,9 @@
 # Self-contained listening review and human outcome
 
+The new [review-bundle graph and objective admission layer](audio-review-bundles.md)
+is separate from this historical four-demo acceptance. It does not transfer the
+findings below to new source/render/presentation identities.
+
 ## Human observation — 2026-11-02
 
 The user confirmed **all four embedded players worked**, then selected **“Accept

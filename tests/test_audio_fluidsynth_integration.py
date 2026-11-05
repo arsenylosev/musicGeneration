@@ -381,7 +381,7 @@ class TestFluidSynthIntegration(unittest.TestCase):
             if not generated:
                 command('aimusic.audio.demo_sources', name, '--seed', 11, '--out', root / name)
             source = package.package.midi_path if generated else root / name / 'source.mid'
-            before = {str(p.relative_to(source.parent)): file_digest(p) for p in source.parent.iterdir() if p.is_file()}
+            before = {p.relative_to(source.parent).as_posix(): file_digest(p) for p in source.parent.iterdir() if p.is_file()}
             intent = None if generated else json.loads((source.parent / 'expected.json').read_text())
             context = package if generated else from_midi(source)
             rows, hashes = {}, []
@@ -396,7 +396,7 @@ class TestFluidSynthIntegration(unittest.TestCase):
                 if name == 'fixture-12':
                     self.assertLessEqual(elapsed, 60)
                 checked = self.check_listening_run(out, source, frames, package if generated else None, intent)
-                digests = {str(p.relative_to(out)): file_digest(p) for p in out.rglob('*') if p.is_file()}
+                digests = {p.relative_to(out).as_posix(): file_digest(p) for p in out.rglob('*') if p.is_file()}
                 hashes.append(digests)
                 rows[variant] = dict(checked, elapsed_sec=elapsed, hits=runner.cache_hits,
                                      misses=runner.cache_misses, artifact_sha256=digests)
@@ -410,10 +410,10 @@ class TestFluidSynthIntegration(unittest.TestCase):
                 self.assertIsInstance(row.pop('wall_clock_utc'), str)
             self.assertEqual(meta[0], meta[1])
             self.assertEqual(hashes[0], hashes[2], 'warm artifact bytes differ, including provenance')
-            self.assertEqual(before, {str(p.relative_to(source.parent)): file_digest(p)
+            self.assertEqual(before, {p.relative_to(source.parent).as_posix(): file_digest(p)
                                      for p in source.parent.iterdir() if p.is_file()})
             evidence['workflows'][name] = {
-                'source': str(source.relative_to(root)), 'source_files_sha256': before,
+                'source': source.relative_to(root).as_posix(), 'source_files_sha256': before,
                 'seed': 11 if name in ('fixture-12', 'generated-12') else None,
                 'runs': rows, 'cold_repeat_wav_equal': True, 'warm_all_artifacts_equal': True,
                 'cold_repeat_metadata_exception': f'{sidecar}: wall_clock_utc only'}
