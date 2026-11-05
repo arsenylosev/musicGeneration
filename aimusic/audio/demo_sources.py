@@ -167,7 +167,7 @@ def write_source(name: str, output: Path, *, seed: int = 11) -> Path:
     a later call refuses rather than reusing. An empty output directory may remain.
     """
     midi, intent = build_source(name, seed=seed)
-    from aimusic.audio.render.stem_publication import pin_output
+    from aimusic.audio.publication import pin_output
     payloads = {'source.mid': midi, 'expected.json': _canonical(intent)}
     payloads['source.json'] = _canonical({
         'schema': REVISION, 'source': name, 'seed': seed if name == 'fixture-12' else None,
@@ -181,7 +181,7 @@ def write_source(name: str, output: Path, *, seed: int = 11) -> Path:
             staging = Path(tmp)
             for filename, data in payloads.items():
                 (staging / filename).write_bytes(data)
-            pinned.publish(staging, list(payloads))
+            pinned.publish(staging, list(payloads), replace=False)
     return output / 'source.mid'
 
 

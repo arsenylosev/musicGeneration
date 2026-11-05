@@ -133,7 +133,7 @@ def render_audio_from_package(
 def _run_m2a(package: RenderPackage, cfg: dict[str, Any], out: Path) -> Path:
     """Keep the optional backend away from sources and the publication tree."""
     from aimusic.audio.inputs import InputSnapshot
-    from aimusic.audio.render.stem_publication import pin_output
+    from aimusic.audio.publication import pin_output
     from m2a.orchestrator import Orchestrator as M2AOrchestrator
 
     if out.resolve() == package.root.resolve():
@@ -174,7 +174,7 @@ def _run_m2a(package: RenderPackage, cfg: dict[str, Any], out: Path) -> Path:
         with ExitStack() as publishing:
             for target, directory, names in publications:
                 root.verify()
-                publishing.enter_context(target.publication(directory, names))
+                publishing.enter_context(target.publication(directory, names, replace=False))
             inputs.verify()
             for target, _, _ in publications:
                 target.verify()

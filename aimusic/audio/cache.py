@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from aimusic.audio.render.registry import file_digest
+from aimusic.audio.publication import validate_names
 
 MANIFEST = 'cache_manifest.json'
 CACHE_VERSION = 1
@@ -25,8 +26,7 @@ def fingerprint(value: Any) -> str:
 
 
 def output_digests(directory: Path, names: list[str]) -> dict[str, str]:
-    if any(Path(name).name != name or name in ('', '.', '..') for name in names):
-        raise ValueError('cache artifact names must be basenames')
+    validate_names(names)
     result = {}
     for name in names:
         path = directory / name
@@ -59,6 +59,7 @@ def cached_stage(root: Path, identity: dict[str, Any], names: list[str],
     A killed producer may leave a dot-prefixed scratch directory; it is never a
     cache candidate. An intact concurrent winner is reused rather than replaced.
     """
+    validate_names([*names, MANIFEST])
     verify_inputs()
     key = fingerprint(identity)
     root.mkdir(parents=True, exist_ok=True)
@@ -95,6 +96,7 @@ def cached_stage(root: Path, identity: dict[str, Any], names: list[str],
 @contextmanager
 def restored_entry(source: Path, key: str, names: list[str]) -> Iterator[Path]:
     """Copy an untrusted cache into private scratch, then verify the request."""
+    validate_names([*names, MANIFEST])
     with tempfile.TemporaryDirectory(prefix='.restore-') as tmp:
         staging = Path(tmp)
         if not verified_entry(source, key, names):

@@ -8,12 +8,12 @@
 
 ## 2. Shared publication contracts and POSIX preservation
 
-- [ ] 2.1 Add failing contract tests for portable names, create-only collisions, case-fold aliases, complete-file visibility, source aliasing, invocation-owned rollback, transaction residue, and actionable unsupported-environment errors; verify the focused tests fail for the intended missing abstraction rather than unrelated setup.
-- [ ] 2.2 Introduce the internal publication policy, identity/ownership records, journal phases, and platform backend interface under `aimusic.audio`, then verify unit tests cover canonical serialization and refuse separators, traversal, controls, Windows reserved names, and trailing spaces/dots.
-- [ ] 2.3 Move the existing descriptor-relative POSIX mechanics behind the shared interface without weakening no-follow, pinned-parent, replacement-backup, or rollback behavior; verify all existing groove/stem/source/cache publication tests and new adversarial POSIX tests pass.
-- [ ] 2.4 Migrate groove bundles, stem/final mix publication, demo-source and MIDI-preview output, and cache restoration to explicit create-only or transactional-replacement policies; verify failure injection preserves unrelated bytes and restores prior groove bundles.
-- [ ] 2.5 Document the publication contract, supported modes, ownership journal, residue/recovery procedure, and non-atomic crash boundary beside the existing audio safety docs; verify every documented POSIX command/test target runs as written.
-- [ ] 2.6 Run `flake8 aimusic tests ui.py`, `mypy aimusic tests ui.py`, and the focused publication suite, then commit this group as `refactor(audio): centralize safe output publication` and verify the working tree contains no uncommitted group-2 files.
+- [x] 2.1 Add failing contract tests for portable names, create-only collisions, case-fold aliases, complete-file visibility, source aliasing, invocation-owned rollback, transaction residue, and actionable unsupported-environment errors; verify the focused tests fail for the intended missing abstraction rather than unrelated setup.
+- [x] 2.2 Introduce the internal publication policy, identity/ownership records, journal phases, and platform backend interface under `aimusic.audio`, then verify unit tests cover canonical serialization and refuse separators, traversal, controls, Windows reserved names, and trailing spaces/dots.
+- [x] 2.3 Move the existing descriptor-relative POSIX mechanics behind the shared interface without weakening no-follow, pinned-parent, replacement-backup, or rollback behavior; verify all existing groove/stem/source/cache publication tests and new adversarial POSIX tests pass.
+- [x] 2.4 Migrate groove bundles, stem/final mix publication, demo-source and MIDI-preview output, and cache restoration to explicit create-only or transactional-replacement policies; verify failure injection preserves unrelated bytes and restores prior groove bundles.
+- [x] 2.5 Document the publication contract, supported modes, ownership journal, residue/recovery procedure, and non-atomic crash boundary beside the existing audio safety docs; verify every documented POSIX command/test target runs as written.
+- [x] 2.6 Run `flake8 aimusic tests ui.py`, `mypy aimusic tests ui.py`, and the focused publication suite, then commit this group as `refactor(audio): centralize safe output publication` and verify the working tree contains no uncommitted group-2 files.
 
 ## 3. Security-preserving native Windows publication
 

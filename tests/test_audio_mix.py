@@ -63,14 +63,17 @@ class TestAlignedMix(unittest.TestCase):
             for level in (0.02, 0.8):
                 sf.write(root / 'a.wav', np.full((100, 2), level), 8000, subtype='FLOAT')
                 sf.write(root / 'b.wav', np.full(50, level), 8000, subtype='FLOAT')
-                mix = rough_mix([root / 'a.wav', root / 'b.wav'], output_path=root / 'mix.wav')
+                mix = rough_mix([root / 'a.wav', root / 'b.wav'], output_path=root / f'mix-{level}.wav')
                 data, _ = sf.read(mix)
                 expected = np.r_[np.full(50, 2 * level), np.full(50, level)]
                 expected *= min(1, 0.95 / max(expected))
                 np.testing.assert_allclose(data, expected, atol=1e-7)
                 self.assertLessEqual(np.max(np.abs(data)), 0.95)
                 first = mix.read_bytes()
-                rough_mix([root / 'a.wav', root / 'b.wav'], output_path=mix)
+                repeated = rough_mix([root / 'a.wav', root / 'b.wav'], output_path=root / f'repeat-{level}.wav')
+                self.assertEqual(first, repeated.read_bytes())
+                with self.assertRaises(FileExistsError):
+                    rough_mix([root / 'a.wav', root / 'b.wav'], output_path=mix)
                 self.assertEqual(first, mix.read_bytes())
             sf.write(root / 'b.wav', [0.1], 16000, subtype='FLOAT')
             with self.assertRaisesRegex(ValueError, 'sample rate'):

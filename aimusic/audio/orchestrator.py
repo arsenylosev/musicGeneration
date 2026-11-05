@@ -25,7 +25,7 @@ from aimusic.audio.manifest import content_hash_files
 from aimusic.audio.inputs import InputSnapshot
 from aimusic.audio.cache import MANIFEST, cached_stage, fingerprint, restored_entry
 from aimusic.audio.render.registry import file_digest
-from aimusic.audio.render.stem_publication import pin_output
+from aimusic.audio.publication import pin_output
 from aimusic.core.render_package import ContractViolation
 
 
@@ -111,7 +111,7 @@ class Orchestrator:
                 staging = Path(tmp)
                 for name, source in sources.items():
                     shutil.copyfile(source, staging / name)
-                root.publish(staging, list(sources))
+                root.publish(staging, list(sources), replace=False)
 
     def _cached_stage(self, stage: str, identity: dict[str, Any], names: list[str],
                       produce: Callable[[Path], Any], *, verify_inputs: Callable[[], None]) -> Path:
@@ -221,9 +221,9 @@ class Orchestrator:
         if stem_root:
             stem_names = sorted(p.name for p in (scratch / 'stems').iterdir() if p.name != MANIFEST) + [MANIFEST]
             stem_root.check_new_files(stem_names)
-        with root.publication(scratch, names):
+        with root.publication(scratch, names, replace=False):
             if stem_root:
-                stem_root.publish(scratch / 'stems', stem_names)
+                stem_root.publish(scratch / 'stems', stem_names, replace=False)
         return out
 
     def _run_stages(self, midi_path: Path, out: Path, context: AudioPackageContext | ImportedMidiContext | None,
@@ -338,9 +338,9 @@ class Orchestrator:
                                                 verify_inputs=verify_render_inputs)
                 with restored_entry(cached_dir, fingerprint(render_subset), plan.names + ['render.json']) as verified:
                     with pin_output(out / 'stems') as stem_root:
-                        stem_root.publish(verified, plan.names + ['render.json', MANIFEST])
+                        stem_root.publish(verified, plan.names + ['render.json', MANIFEST], replace=False)
                     verify_render_inputs()
-                    root.publish(verified, ['render.json'])
+                    root.publish(verified, ['render.json'], replace=False)
 
 
 # Versions are stage-specific: an unrelated validator change must not invalidate

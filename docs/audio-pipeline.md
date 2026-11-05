@@ -100,3 +100,4 @@ so DSP never blocks on symbolic changes. The contract is the decoupler.
 - [audio-stages.md](audio-stages.md) — STAGE 1–6 design
 - [audio-next-steps.md](audio-next-steps.md) — agent backlog
 - [docs/decisions/](decisions/) — ADRs
+- [audio-publication-safety.md](audio-publication-safety.md) - publication containment, rollback, and crash recovery

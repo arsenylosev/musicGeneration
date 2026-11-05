@@ -24,7 +24,7 @@ from aimusic.audio.config import normalize_routing, resolve_soundfont
 from aimusic.audio.render.registry import RenderRequest, ResolvedRenderer, render_request as render_stem
 from aimusic.audio.render import registry, tuning
 from aimusic.audio.render.simple_r import _peak_dbfs
-from aimusic.audio.render.stem_publication import pin_output
+from aimusic.audio.publication import pin_output
 from aimusic.audio.render.util import peak_normalize, render_frames, limit_peak, write_float_wav
 from aimusic.core.core_types import Score
 
@@ -123,8 +123,12 @@ def rough_mix(
     ceiling = min(peak, 10 ** (peak_dbfs / 20)) if peak_dbfs is not None else peak
     mix, _ = limit_peak(mix, ceiling)
     out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    write_float_wav(out, mix.astype(np.float32), sr)
+    with pin_output(out.parent) as root:
+        root.check_new_files([out.name])
+        with tempfile.TemporaryDirectory(prefix='aimusic-mix-') as tmp:
+            staging = Path(tmp)
+            write_float_wav(staging / out.name, mix.astype(np.float32), sr)
+            root.publish(staging, [out.name], replace=False, sources=tuple(Path(p) for p in stem_paths))
     return out
 
 
@@ -165,13 +169,13 @@ def copy_stem_artifacts(source: Path, output: Path, *, verify_cache: bool = Fals
         root.check_new_files(names + ([MANIFEST] if verify_cache else []))
         with snapshot as verified:
             if verify_cache:
-                root.publish(verified, [*names, MANIFEST])
+                root.publish(verified, [*names, MANIFEST], replace=False)
             else:
                 with tempfile.TemporaryDirectory(prefix='.stems-') as tmp:
                     staging = Path(tmp)
                     for name in names:
                         shutil.copyfile(verified / name, staging / name)
-                    root.publish(staging, names)
+                    root.publish(staging, names, replace=False)
 
 
 def stem_artifact_names(stems: tuple[SourceStem, ...]) -> list[str]:
@@ -293,6 +297,6 @@ def render_role_stems(
                 {'schema_version': STEM_LAYOUT_VERSION, 'stems': rows, 'roles': roles,
                  'generated': GENERATED}, indent=2, sort_keys=True), encoding='utf-8')
             plan.verify_inputs(midi_path)
-            root.publish(staging, names)
+            root.publish(staging, names, replace=False)
     return {**{row['id']: Path(output_dir) / row['wav'] for row in rows},
             **{key: Path(output_dir) / name for key, name in GENERATED.items()}}
