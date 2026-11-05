@@ -6,7 +6,7 @@ See `proposal.md` for motivation and the two capability specs for required behav
 
 The current listening tool embeds exactly four rough mixes into one HTML file. It validates bounded WAV containers and refuses overwrite, but it neither admits stimuli from machine evidence nor blinds comparisons, records assignments/findings, or links a review to the full render provenance. Existing demo sources and native-integration reports provide useful deterministic inputs, but historical acceptance applies only to the old hashes.
 
-The symbolic/audio boundary, optional dependency quarantine, lazy CLI loading, pinned native evidence, and fork-first contribution path remain constraints. The feature branch also trails `origin/main`, so implementation starts by integrating the current base before behavior changes.
+The symbolic/audio boundary, optional dependency quarantine, lazy CLI loading, pinned native evidence, and fork-first contribution path remain constraints. Integrating `origin/main` also adds `aimusic.audio.preview`, whose direct overwrite-capable WAV writer must adopt the same create-only publication policy as other externally selected audio outputs.
 
 ## Goals / Non-Goals
 
@@ -29,7 +29,7 @@ The symbolic/audio boundary, optional dependency quarantine, lazy CLI loading, p
 
 ### 1. Centralize publication policy and keep platform mechanics separate
 
-Create an internal `aimusic.audio` publication layer used by groove bundles, stems, generated demo sources, cache restoration, review bundles, and related final artifacts. Shared policy owns portable-name checks, destination classification, ownership records, collision semantics, transaction state, cleanup, and diagnostics. A POSIX backend retains directory-descriptor and no-follow operations. A Windows backend owns native handles and never emulates descriptor safety with resolve/check/use path sequences.
+Create an internal `aimusic.audio` publication layer used by groove bundles, stems, generated demo sources, MIDI previews, cache restoration, review bundles, and related final artifacts. Shared policy owns portable-name checks, destination classification, ownership records, collision semantics, transaction state, cleanup, and diagnostics. A POSIX backend retains directory-descriptor and no-follow operations. A Windows backend owns native handles and never emulates descriptor safety with resolve/check/use path sequences.
 
 This consolidates currently duplicated assumptions while preserving capability-specific policy: stems/review bundles are create-only; groove bundles may replace a related set with recoverable backups. A single lowest-common-denominator `shutil` implementation was rejected because it cannot preserve no-overwrite, containment, or owned rollback under races.
 

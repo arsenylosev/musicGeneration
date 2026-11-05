@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import errno
 from html.parser import HTMLParser
 import io
 import os
@@ -56,6 +57,45 @@ class TestListeningReview(unittest.TestCase):
             self.outputs[name] = out
         self.out = self.root / 'review.html'
 
+    def require_symlink_capability(self, *, target_is_directory=False):
+        # Probe file/directory support separately; never infer it from the OS name.
+        kind = 'directory' if target_is_directory else 'file'
+        target = self.root if target_is_directory else self.outputs[DEMOS[0][0]] / 'stems/rough_mix.wav'
+        probe = self.root / 'symlink-capability-probe'
+        try:
+            probe.symlink_to(target, target_is_directory=target_is_directory)
+        except NotImplementedError:
+            self.skipTest(f'{kind} symlink capability unavailable: not implemented')
+        except OSError as exc:
+            winerror = getattr(exc, 'winerror', None)
+            if winerror != 1314 and exc.errno not in (errno.EACCES, errno.EPERM, errno.ENOSYS, errno.ENOTSUP):
+                raise
+            self.skipTest(f'{kind} symlink capability unavailable: errno={exc.errno}, winerror={winerror}')
+        self.assertTrue(probe.is_symlink())
+        probe.unlink()
+
+    def test_symlink_probe_skips_only_unavailable_capabilities(self):
+        privilege_error = OSError(errno.EINVAL, 'symlink privilege unavailable')
+        privilege_error.winerror = 1314
+        unavailable = [NotImplementedError(), privilege_error]
+        unavailable.extend(OSError(code, 'unavailable') for code in
+                           (errno.EACCES, errno.EPERM, errno.ENOSYS, errno.ENOTSUP))
+        for error in unavailable:
+            with self.subTest(error=repr(error)):
+                with patch.object(Path, 'symlink_to', side_effect=error):
+                    with self.assertRaisesRegex(unittest.SkipTest, 'symlink capability unavailable'):
+                        self.require_symlink_capability()
+        for code in (errno.EIO, errno.EEXIST, errno.ENOENT, errno.EINVAL):
+            error = OSError(code, 'unexpected probe failure')
+            with self.subTest(errno=code):
+                with patch.object(Path, 'symlink_to', side_effect=error):
+                    with self.assertRaises(OSError) as caught:
+                        try:
+                            self.require_symlink_capability()
+                        except unittest.SkipTest as skipped:
+                            self.fail(f'unexpected probe error was skipped: {skipped}')
+                self.assertIs(caught.exception, error)
+
     def test_exact_four_embedded_bytes_order_and_no_external_resources(self):
         write_listening_review(dict(reversed(list(self.outputs.items()))), self.out)
         parsed = parse_review(self.out)
@@ -105,7 +145,7 @@ class TestListeningReview(unittest.TestCase):
                 write_listening_review(values, self.out)
             self.assertFalse(self.out.exists())
 
-    def test_missing_nonregular_unreadable_and_invalid_wav_leave_no_output(self):
+    def test_missing_nonregular_and_invalid_wav_leave_no_output(self):
         wav = self.outputs[DEMOS[0][0]] / 'stems/rough_mix.wav'
         wav.unlink()
         with self.assertRaises(OSError):
@@ -123,14 +163,40 @@ class TestListeningReview(unittest.TestCase):
             wav.write_bytes(data)
             with self.assertRaisesRegex(ValueError, 'WAV'):
                 write_listening_review(self.outputs, self.out)
-        wav.write_bytes(self.wavs[0])
-        wav.chmod(0)
+        self.assertFalse(self.out.exists())
+
+    def test_chmod_unreadable_wav_leaves_no_output(self):
+        wav = self.outputs[DEMOS[0][0]] / 'stems/rough_mix.wav'
+        original_mode = wav.stat().st_mode
         try:
+            wav.chmod(0)
+            # Probe the mode bits used by the reader, not os.access(): even a
+            # privileged POSIX process must reject a WAV with no read bits.
+            if wav.stat().st_mode & 0o444:
+                self.skipTest('chmod unreadability unavailable: chmod(0) retains read bits')
             with self.assertRaises(PermissionError):
                 write_listening_review(self.outputs, self.out)
         finally:
-            wav.chmod(0o600)
+            wav.chmod(original_mode)
         self.assertFalse(self.out.exists())
+        self.assertEqual(wav.read_bytes(), self.wavs[0])
+
+    def test_injected_read_permission_denial_leaves_no_output(self):
+        # Exercise the failure invariant even when chmod cannot remove read bits
+        # (Windows), and when mode bits allow reads but an ACL/open denies them.
+        wav = self.outputs[DEMOS[0][0]] / 'stems/rough_mix.wav'
+        original_open = os.open
+
+        def denied_open(path, *args, **kwargs):
+            if path == wav:
+                raise PermissionError(errno.EACCES, 'injected WAV read denial', str(path))
+            return original_open(path, *args, **kwargs)
+
+        with patch('aimusic.audio.listening_review.os.open', denied_open):
+            with self.assertRaisesRegex(PermissionError, 'injected WAV read denial'):
+                write_listening_review(self.outputs, self.out)
+        self.assertFalse(self.out.exists())
+        self.assertEqual(wav.read_bytes(), self.wavs[0])
 
     def test_float_wav_and_malformed_format_validation(self):
         # Native rough_mix is FLOAT WAV, not the PCM produced by stdlib wave.
@@ -187,7 +253,7 @@ class TestListeningReview(unittest.TestCase):
             write_listening_review(self.outputs, self.root / 'large.html')
         self.assertFalse((self.root / 'large.html').exists())
 
-    def test_existing_file_directory_and_dangling_or_live_symlinks_refused(self):
+    def test_existing_file_and_directory_refused(self):
         self.out.write_bytes(b'preserve')
         with self.assertRaises(FileExistsError):
             write_listening_review(self.outputs, self.out)
@@ -196,29 +262,39 @@ class TestListeningReview(unittest.TestCase):
         self.out.mkdir()
         with self.assertRaises(FileExistsError):
             write_listening_review(self.outputs, self.out)
-        self.out.rmdir()
-        for target in (self.root / 'missing', self.outputs[DEMOS[0][0]] / 'stems/rough_mix.wav'):
-            before = target.read_bytes() if target.exists() else None
-            self.out.symlink_to(target)
-            with self.assertRaises(FileExistsError):
-                write_listening_review(self.outputs, self.out)
-            self.assertTrue(self.out.is_symlink())
-            self.assertEqual(target.read_bytes() if target.exists() else None, before)
-            self.out.unlink()
+        self.assertTrue(self.out.is_dir())
 
-    def test_symlink_input_and_output_parent_refused(self):
+    def test_dangling_or_live_output_symlinks_refused(self):
+        self.require_symlink_capability()
+        for target in (self.root / 'missing', self.outputs[DEMOS[0][0]] / 'stems/rough_mix.wav'):
+            with self.subTest(target=target.name):
+                before = target.read_bytes() if target.exists() else None
+                self.out.symlink_to(target)
+                with self.assertRaises(FileExistsError):
+                    write_listening_review(self.outputs, self.out)
+                self.assertTrue(self.out.is_symlink())
+                self.assertEqual(target.read_bytes() if target.exists() else None, before)
+                self.out.unlink()
+
+    def test_symlink_input_refused(self):
+        self.require_symlink_capability()
         wav = self.outputs[DEMOS[0][0]] / 'stems/rough_mix.wav'
         saved = wav.with_name('saved.wav')
         wav.rename(saved)
         wav.symlink_to(saved)
         with self.assertRaises((ValueError, OSError)):
             write_listening_review(self.outputs, self.out)
-        wav.unlink()
-        saved.rename(wav)
+        self.assertTrue(wav.is_symlink())
+        self.assertEqual(saved.read_bytes(), self.wavs[0])
+        self.assertFalse(self.out.exists())
+
+    def test_symlink_output_parent_refused(self):
+        self.require_symlink_capability(target_is_directory=True)
         alias = self.root / 'alias'
         alias.symlink_to(self.root, target_is_directory=True)
         with self.assertRaises((ValueError, OSError)):
             write_listening_review(self.outputs, alias / 'review.html')
+        self.assertTrue(alias.is_symlink())
         self.assertFalse(self.out.exists())
 
     def test_module_command_evidence_root_and_explicit_directories(self):
