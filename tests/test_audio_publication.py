@@ -12,8 +12,10 @@ needed. Link capabilities are probed individually, never by skipping a platform.
 from __future__ import annotations
 
 import errno
+from functools import lru_cache
 import importlib
 import json
+import os
 import stat
 import subprocess
 import sys
@@ -26,6 +28,31 @@ from unittest.mock import patch
 
 
 _SHARED_MODULE = 'aimusic.audio.publication'
+
+
+
+@lru_cache(maxsize=1)
+def _native_reader_api():
+    from aimusic.audio.windows_native import WindowsAPI
+    return WindowsAPI()
+
+
+def _read_public(path: Path) -> bytes:
+    """Observe live Windows rename handles without dropping DELETE sharing.
+
+    Ordinary CRT readers do not share delete access. Use a native reader during
+    the transaction, rather than skipping unreadable/partial public samples.
+    POSIX still uses exactly the original read path.
+    """
+    if os.name != 'nt':
+        return path.read_bytes()
+    from aimusic.audio.windows_native import READ, SHARE_ALL
+    api = _native_reader_api()
+    with api.open(path, READ, share=SHARE_ALL) as handle:
+        pieces = []
+        while data := api.read(handle, 65536):
+            pieces.append(data)
+        return b''.join(pieces)
 
 
 def _snapshot(root: Path) -> dict[str, tuple[str, bytes | str]]:
@@ -56,10 +83,28 @@ def _observe_public_bytes(output: Path, permitted: dict[str, tuple[bytes | None,
     observed: dict[str, set[bytes | None]] = {name: set() for name in permitted}
 
     def observe(frame, event, arg):
+        # Native metadata verification has no write side effects. Trace every
+        # mutation-capable wrapper line (including failed opens/short writes),
+        # callers and Python copying, but not repeated read-only identity probes.
+        module = frame.f_globals.get('__name__', '')
+        if os.name == 'nt' and not (
+                module.startswith('aimusic.audio.') or module == __name__ or
+                module in ('pathlib', 'shutil', 'tempfile', 'io', '_pyio')):
+            return None  # Skip pure serialization/runtime bookkeeping, not I/O.
+        if os.name == 'nt' and module == 'aimusic.audio.windows_native':
+            if frame.f_code.co_name == 'open' and not frame.f_locals.get('access', 0) & 0x40000000:
+                return None  # Metadata/source READ opens cannot truncate bytes.
+        if os.name == 'nt' and module in ('aimusic.audio.windows_native', 'aimusic.audio.publication_windows'):
+            if frame.f_code.co_name not in {
+                'open', 'write', 'rewrite', 'rename', 'dispose', 'stage',
+                'retain', 'move', 'remove', 'cleanup', 'backup', 'publish', 'prepare',
+                'acquire_pin', 'restore', 'journal',
+            }:
+                return None
         if event in ('line', 'return'):
             for name, allowed in permitted.items():
                 try:
-                    contents = (output / name).read_bytes()
+                    contents = _read_public(output / name)
                 except FileNotFoundError:
                     contents = None
                 observed[name].add(contents)
@@ -204,13 +249,20 @@ class TestAudioPublicationContract(unittest.TestCase):
         self.assertEqual(_snapshot(self.output), before)
         self.assertEqual(self.source.read_bytes(), b'UNCHANGED SOURCE MIDI')
 
+    def test_visibility_observer_detects_a_partial_public_write(self):
+        with self.assertRaisesRegex(AssertionError, 'incomplete bytes'):
+            with _observe_public_bytes(self.output, {'probe.wav': (None, b'COMPLETE')}):
+                with (self.output / 'probe.wav').open('wb') as stream:
+                    stream.write(b'PARTIAL')
+                    stream.flush()
+
     def test_create_only_publishes_exact_complete_bytes_without_residue(self):
         expected = {name: (None, contents) for name, contents in self.payloads.items()}
         with self.publication.pin_output(self.output) as root:
             with _observe_public_bytes(self.output, expected) as observed:
                 with root.publication(self.staging, list(self.payloads)):
                     for name, contents in self.payloads.items():
-                        self.assertEqual((self.output / name).read_bytes(), contents)
+                        self.assertEqual(_read_public(self.output / name), contents)
         self.assertEqual(_snapshot(self.output),
                          {name: ('file', contents) for name, contents in self.payloads.items()})
         for name, contents in self.payloads.items():
@@ -229,7 +281,7 @@ class TestAudioPublicationContract(unittest.TestCase):
             with _observe_public_bytes(self.output, expected):
                 with root.publication(self.staging, list(self.payloads), replace=True, sources=(self.source,)):
                     for name, contents in self.payloads.items():
-                        self.assertEqual((self.output / name).read_bytes(), contents)
+                        self.assertEqual(_read_public(self.output / name), contents)
         self.assertEqual(_snapshot(self.output),
                          {name: ('file', contents) for name, contents in self.payloads.items()})
         self.assertEqual(self.source.read_bytes(), b'UNCHANGED SOURCE MIDI')
@@ -317,7 +369,7 @@ class TestAudioPublicationContract(unittest.TestCase):
                         # Some pinned backends prevent this attack outright.
                         # Ordinary rollback still runs and must leave the
                         # would-be attacker's external file untouched.
-                        self.assertEqual((self.output / 'a.mid').read_bytes(), self.payloads['a.mid'])
+                        self.assertEqual(_read_public(self.output / 'a.mid'), self.payloads['a.mid'])
                     else:
                         replaced = True
                     raise RuntimeError('caller failed')
@@ -337,7 +389,7 @@ class TestAudioPublicationContract(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'caller failed'):
             with self.publication.pin_output(self.output) as root:
                 with root.publication(self.staging, list(self.payloads), replace=True, sources=(self.source,)):
-                    self.assertEqual((self.output / 'a.mid.diff.json').read_bytes(), self.payloads['a.mid.diff.json'])
+                    self.assertEqual(_read_public(self.output / 'a.mid.diff.json'), self.payloads['a.mid.diff.json'])
                     raise RuntimeError('caller failed')
         self.assertEqual(_snapshot(self.output), before)
         self.assertEqual(self.source.read_bytes(), b'UNCHANGED SOURCE MIDI')

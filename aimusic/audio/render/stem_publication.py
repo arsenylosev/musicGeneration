@@ -1,9 +1,4 @@
-"""Compatibility module alias for the retained Windows implementation.
+"""Compatibility exports; all platform selection belongs to shared publication."""
+from aimusic.audio.publication import PinnedOutput, pin_output
 
-All application callers use aimusic.audio.publication. Preserve the old API and
-Windows simulation seam until the native backend replaces this implementation.
-"""
-import sys
-from aimusic.audio import publication_windows
-
-sys.modules[__name__] = publication_windows
+__all__ = ['PinnedOutput', 'pin_output']

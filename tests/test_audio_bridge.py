@@ -181,6 +181,14 @@ class TestM2APublication(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
+    def symlink_or_skip(self, link, target, *, directory=False):
+        try:
+            link.symlink_to(target, target_is_directory=directory)
+        except OSError as exc:
+            if getattr(exc, 'winerror', None) == 1314:
+                self.skipTest('Native symlink privilege unavailable; file/hardlink collisions and native junction tests remain')
+            raise
+
     def render(self, out=None):
         from aimusic.audio.bridge import render_audio_from_package
         return render_audio_from_package(self.package, output_dir=out or self.out)
@@ -198,12 +206,12 @@ class TestM2APublication(unittest.TestCase):
                     if kind == 'regular':
                         target.write_bytes(b'EXISTING')
                     elif kind == 'victim_link':
-                        target.symlink_to(victim)
+                        self.symlink_or_skip(target, victim)
                     else:
                         # Cross-source alias: copy2's same-file guard cannot help.
                         source = self.package / ('structure.json' if name == 'score.mid' else 'score.mid')
                         if kind == 'source_link':
-                            target.symlink_to(source)
+                            self.symlink_or_skip(target, source)
                         else:
                             os.link(source, target)
                     before = target.read_bytes()
@@ -219,12 +227,16 @@ class TestM2APublication(unittest.TestCase):
                         target.unlink()
 
     def test_output_directory_alias_to_package_is_rejected(self):
-        alias = self.root / 'alias'
-        alias.symlink_to(self.package.parent, target_is_directory=True)
-        for out in (self.package, alias / self.package.name):
-            with self.subTest(out=out), self.assertRaises((ValueError, FileExistsError)):
-                self.render(out)
-            self.assert_source_unchanged()
+        for kind in ('direct', 'symlink'):
+            with self.subTest(kind=kind):
+                out = self.package
+                if kind == 'symlink':
+                    alias = self.root / 'alias'
+                    self.symlink_or_skip(alias, self.package.parent, directory=True)
+                    out = alias / self.package.name
+                with self.assertRaises((ValueError, FileExistsError)):
+                    self.render(out)
+                self.assert_source_unchanged()
         self.orch.assert_not_called()
 
     def test_failed_backend_leaves_no_partial_publication_or_source_changes(self):
@@ -259,13 +271,17 @@ class TestM2APublication(unittest.TestCase):
             (output_dir / 'stems/mix.wav').write_bytes(b'AUDIO')
             return output_dir
         self.orch.return_value.run.side_effect = run
-        real_link = os.link
+        if os.name == 'nt':
+            from aimusic.audio.windows_native import WindowsAPI
+            operation, real_link = 'aimusic.audio.windows_native.WindowsAPI.rename', WindowsAPI.rename
+        else:
+            operation, real_link = 'os.link', os.link
 
-        def link(src, dst, **kwargs):
-            if Path(dst).name == 'mix.wav':
+        def link(*args, **kwargs):
+            if Path(args[-1]).name == 'mix.wav':
                 raise OSError('publication failed')
-            return real_link(src, dst, **kwargs)
-        with mock.patch('os.link', side_effect=link), self.assertRaisesRegex(OSError, 'publication failed'):
+            return real_link(*args, **kwargs)
+        with mock.patch(operation, new=link), self.assertRaisesRegex(OSError, 'publication failed'):
             self.render()
         self.assertFalse([p for p in self.out.rglob('*') if p.is_file()])
         self.assert_source_unchanged()

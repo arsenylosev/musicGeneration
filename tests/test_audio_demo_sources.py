@@ -194,16 +194,27 @@ class TestDemoSources(unittest.TestCase):
                         elif kind == 'directory':
                             target.mkdir()
                         else:
-                            target.symlink_to(root / ('missing' if kind == 'dangling' else 'outside'))
+                            try:
+                                target.symlink_to(root / ('missing' if kind == 'dangling' else 'outside'))
+                            except OSError as exc:
+                                if getattr(exc, 'winerror', None) == 1314:
+                                    self.skipTest('Native symlink privilege unavailable; ordinary collisions remain mandatory')
+                                raise
                         before = files(out)
                         with self.assertRaises((ValueError, FileExistsError)):
                             write_source('fixture-12', out)
                         self.assertEqual(before, files(out))
                         self.assertEqual(list(out.iterdir()), [target])
-            link = root / 'linked'
-            link.symlink_to(root, target_is_directory=True)
-            with self.assertRaisesRegex(ValueError, 'symlink'):
-                write_source('fixture-12', link)
+            with self.subTest(kind='root-symlink'):
+                link = root / 'linked'
+                try:
+                    link.symlink_to(root, target_is_directory=True)
+                except OSError as exc:
+                    if getattr(exc, 'winerror', None) == 1314:
+                        self.skipTest('Native symlink privilege unavailable; native junction test remains mandatory when supported')
+                    raise
+                with self.assertRaisesRegex(ValueError, 'symlink|reparse'):
+                    write_source('fixture-12', link)
             with self.assertRaisesRegex(ValueError, 'source'):
                 write_source('other', root / 'bad')
             self.assertFalse((root / 'bad').exists())

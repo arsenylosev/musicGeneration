@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -377,7 +378,12 @@ class TestReviewPublication(unittest.TestCase):
                     destinations = [Path(str(out) + ext) for ext in ('', '.diff.json', '.json')]
                     for destination in destinations:
                         if destination == Path(str(out) + suffix):
-                            getattr(destination, link)(source)
+                            try:
+                                getattr(destination, link)(source)
+                            except OSError as exc:
+                                if link == 'symlink_to' and getattr(exc, 'winerror', None) == 1314:
+                                    self.skipTest('Native symlink privilege unavailable; source hardlink alias cases remain mandatory')
+                                raise
                         else:
                             destination.write_bytes(b'previous artifact')
                     before = [p.read_bytes() for p in destinations]
@@ -426,17 +432,21 @@ class TestReviewPublication(unittest.TestCase):
                 if existing:
                     for destination in destinations:
                         destination.write_bytes(b'previous artifact')
-                replace = os.replace
+                if os.name == 'nt':
+                    from aimusic.audio.windows_native import WindowsAPI
+                    operation, replace = 'aimusic.audio.windows_native.WindowsAPI.rename', WindowsAPI.rename
+                else:
+                    operation, replace = 'os.replace', os.replace
                 failed = False
 
-                def fail_manifest(src, dst, **kwargs):
+                def fail_manifest(*args, **kwargs):
                     nonlocal failed
-                    if Path(dst).name == out.name + '.json' and not failed:
+                    if Path(args[-1]).name == out.name + '.json' and not failed:
                         failed = True
                         raise OSError('publish failed')
-                    return replace(src, dst, **kwargs)
+                    return replace(*args, **kwargs)
 
-                with patch('os.replace', side_effect=fail_manifest):
+                with patch(operation, new=fail_manifest):
                     with self.assertRaisesRegex(OSError, 'publish failed'):
                         apply_groove(source, {}, output_path=out)
                 self.assertTrue(failed)
@@ -459,26 +469,32 @@ class TestReviewPublication(unittest.TestCase):
             original = source.read_bytes()
             for suffix in ('', '.diff.json', '.json'):
                 Path(str(out) + suffix).write_bytes(b'previous artifact')
-            replace = os.replace
+            if os.name == 'nt':
+                from aimusic.audio.windows_native import WindowsAPI
+                operation, replace = 'aimusic.audio.windows_native.WindowsAPI.rename', WindowsAPI.rename
+            else:
+                operation, replace = 'os.replace', os.replace
             failed = False
 
-            def fail_publication_and_rollback(src, dst, **kwargs):
+            def fail_publication_and_rollback(*args, **kwargs):
                 nonlocal failed
-                if Path(dst).name == out.name + '.json':
+                if Path(args[-1]).name == out.name + '.json':
                     failed = True
                     raise OSError('publish failed')
                 if failed:
                     raise OSError('rollback failed')
-                return replace(src, dst, **kwargs)
+                return replace(*args, **kwargs)
 
-            with patch('os.replace', side_effect=fail_publication_and_rollback):
+            with patch(operation, new=fail_publication_and_rollback):
                 with self.assertRaisesRegex(OSError, 'recovery files retained'):
                     apply_groove(source, {}, output_path=out)
             self.assertEqual(source.read_bytes(), original)
-            recovery = list(Path(tmp).glob('.groove-*/backup-*'))
+            pattern = '.groove-*.backup-*' if os.name == 'nt' else '.groove-*/backup-*'
+            recovery = list(Path(tmp).glob(pattern))
             self.assertEqual(len(recovery), 3)
             self.assertTrue(all(p.read_bytes() == b'previous artifact' for p in recovery))
 
+    @unittest.skipIf(os.name == 'nt', 'POSIX replacement semantics; NTFS late-link collision tested natively')
     def test_replace_never_follows_a_late_source_link(self):
         import os
         from unittest.mock import patch

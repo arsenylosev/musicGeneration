@@ -13,6 +13,9 @@ from aimusic.audio.publication_records import FileIdentity, Journal, Ownership, 
 
 class TransactionWorkspace(Protocol):
     """Private, same-filesystem storage operated through a pinned backend."""
+    @property
+    def recovery_path(self) -> Path: ...
+    def prepare(self, originals: tuple[Ownership, ...], staged: tuple[str, ...]) -> None: ...
     def journal(self, data: bytes) -> None: ...
     def stage(self, source: Path, name: str) -> FileIdentity: ...
     def backup(self, name: str, private: str, identity: FileIdentity) -> None: ...
@@ -50,12 +53,17 @@ def transaction(root: TransactionBackend, staging: Path, journal: Journal) -> It
         private = {name: f'.stems-{index}' for index, name in enumerate(journal.names)}
         backups = {name: f'backup-{index}' for index, name in enumerate(journal.names) if name in originals}
         try:
+            # Windows must reserve empty leaves and verify its directory pin
+            # before any payload or journal content can enter the output tree.
+            work.prepare(journal.originals, tuple(private.values()))
             work.journal(canonical(journal))
             for name in journal.names:
                 identity = work.stage(staging / name, private[name])
                 journal = evolve(journal, staged=(*journal.staged, Ownership(name, identity)))
                 work.journal(canonical(journal))
             root.verify()
+            for name in journal.names:
+                _check_casefold(root, name)
             # Preserve all prior copies before touching the first public name.
             for name, backup in backups.items():
                 work.backup(name, backup, originals[name].identity)
@@ -107,6 +115,11 @@ def transaction(root: TransactionBackend, staging: Path, journal: Journal) -> It
                     work.restore(backup, originals[name], published.get(name))
                 except (OSError, ValueError) as exc:
                     rollback_errors.append(exc)
+            if not rollback_errors:
+                try:
+                    work.cleanup()
+                except (OSError, ValueError) as exc:
+                    rollback_errors.append(exc)
             if rollback_errors:
                 journal = evolve(journal, phase=Phase.RECOVERY)
                 try:
@@ -115,8 +128,7 @@ def transaction(root: TransactionBackend, staging: Path, journal: Journal) -> It
                 except (OSError, ValueError):
                     pass  # Keep every remaining identity and never destroy recovery.
                 raise OSError(f'Publication rollback failed; recovery files retained in '
-                              f'{root.path / journal.invocation}') from rollback_errors[0]
-            work.cleanup()
+                              f'{work.recovery_path}') from rollback_errors[0]
             raise
         # Commit is explicit. Cleanup failure leaves a committed journal/residue,
         # not permission to roll back after some old copies have been discarded.
@@ -124,4 +136,4 @@ def transaction(root: TransactionBackend, staging: Path, journal: Journal) -> It
             work.cleanup()
         except (OSError, ValueError) as exc:
             raise OSError(f'Publication cleanup failed; recovery files retained in '
-                          f'{root.path / journal.invocation}') from exc
+                          f'{work.recovery_path}') from exc

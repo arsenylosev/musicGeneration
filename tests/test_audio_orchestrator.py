@@ -515,7 +515,12 @@ class TestVerifiedCache(unittest.TestCase):
                 if kind == 'file':
                     report.write_bytes(b'KEEP')
                 else:
-                    report.symlink_to(outside)
+                    try:
+                        report.symlink_to(outside)
+                    except OSError as exc:
+                        if getattr(exc, 'winerror', None) == 1314:
+                            self.skipTest('Native symlink privilege unavailable; ordinary report collision remains mandatory')
+                        raise
                 with self.assertRaises(FileExistsError):
                     self.run_audio()
                 self.assertEqual(outside.read_bytes(), b'KEEP OUTSIDE')

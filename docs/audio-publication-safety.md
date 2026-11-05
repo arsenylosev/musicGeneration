@@ -39,11 +39,17 @@ Recovery is an explicit operator decision:
 
 There is no automatic recovery command because a damaged or partial journal cannot safely choose between old and new operator data.
 
-## Non-atomic crash boundary and Windows status
+## Non-atomic crash boundary and Windows support
 
 Each public leaf has complete-file visibility, but a related set is **not** a single crash-atomic filesystem transaction. During replacement or after a crash, a set may contain old leaves, new leaves, absent leaves, and private backups. Normal exceptions provide rollback; process/filesystem crashes do not. A committed journal with failed cleanup is also residue to inspect, not permission to roll back after old copies may have been discarded.
 
-These guarantees are currently implemented and tested on supported POSIX hosts. The Windows adapter is temporary: the legacy pinned create-only route remains but currently hits the native directory-sharing/hard-link conflict (for example WinError 32), and transactional replacement deliberately fails with an actionable unsupported-environment error. Group 3 will add native handle-rooted NTFS operations and native CI evidence. Until then, simulation, legacy hard-link behavior, and POSIX results do not complete the Windows publication contract.
+Windows publication is supported only on writable, fixed, local NTFS volumes. UNC, network/device, read-only, reparse-point, and non-NTFS output paths fail closed with `Publication requires ...` diagnostics. No fallback attempts to approximate the contract.
+
+The Windows backend reserves empty private leaves with `CREATE_NEW`, retains their handles, pins and revalidates the publication-directory identity and reparse state, then writes and flushes content only through those handles. Public names are created by same-directory retained-handle atomic no-replace renames. Directory pins do not lock the child namespace, so case-fold checks, atomic collision refusal, and identity-owned rollback handle competing child changes.
+
+`FILE_SHARE_WRITE` on directory pins is rejected because it permits directory replacement or reparse conversion. Path-based copy, hard-link, `MoveFileExW`, and overwrite-capable rename fallbacks are rejected because they reopen ancestor races, expose partial public bytes, conflict with the pin, or can replace unrelated entries. Windows residue uses flat invocation-prefixed leaves; it is ambiguous after interruption and is never deleted automatically. Use the same explicit inventory and recovery procedure above, preserving every possible only copy.
+
+The original `WinError 32` hard-link conflict and unavailable `os.O_DIRECTORY` route are regression-tested through native retained-handle publication. This native support does not make a related multi-file set crash-atomic, and native CI evidence remains distinct from optional FluidSynth renderer evidence.
 
 ## POSIX verification
 

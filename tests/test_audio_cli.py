@@ -131,9 +131,15 @@ assert not any(n.startswith(('aimusic.audio.render', 'aimusic.audio.orchestrator
             outside.mkdir()
             out = root / 'out'
             out.mkdir()
-            (out / 'stems').symlink_to(outside, target_is_directory=True)
             for target in (root, out):
                 with self.subTest(target=target):
+                    if target == out:
+                        try:
+                            (out / 'stems').symlink_to(outside, target_is_directory=True)
+                        except OSError as exc:
+                            if getattr(exc, 'winerror', None) == 1314:
+                                self.skipTest('Native symlink privilege unavailable; source-alias CLI check and native junction tests remain')
+                            raise
                     result = _run_cli('render-midi', str(source), '--out', str(target), '--no-validate-only')
                     self.assertNotEqual(result.returncode, 0)
                     self.assertEqual(source.read_bytes(), original)

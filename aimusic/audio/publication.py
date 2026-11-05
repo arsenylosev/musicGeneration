@@ -3,8 +3,8 @@
 Complete files are staged privately on the output filesystem. Each live
 transaction retains identity evidence and any previous copies until the caller
 accepts it. Crash residue is reported, never implicitly trusted or removed.
-Windows temporarily delegates to the original locked-directory implementation;
-no weaker copy/rename fallback is provided for unsupported native operations.
+Windows uses retained-handle same-directory publication; no path-based mutation
+fallback is provided for unsupported native operations.
 """
 from __future__ import annotations
 
@@ -40,10 +40,7 @@ def _unsupported(output: Path | str, exc: BaseException) -> RuntimeError:
 
 
 def _open_backend(output: Path | str) -> ContextManager[PublicationBackend]:
-    # The compatibility module also owns the Windows API simulation seam. Keep
-    # that module intact until the native handle-relative backend replaces it.
-    from aimusic.audio import publication_windows as legacy
-    if legacy.os.name == 'nt':
+    if os.name == 'nt':
         from aimusic.audio.publication_windows import open_backend
         return open_backend(output)
     from aimusic.audio.publication_posix import open_backend as open_posix
@@ -64,7 +61,8 @@ class PinnedOutput:
 
     def _residue(self) -> None:
         residue = sorted(name for name in self.backend.entries()
-                         if name.casefold().startswith(PRIVATE_PREFIXES) and name not in self._active)
+                         if name.casefold().startswith(PRIVATE_PREFIXES) and
+                         not any(name == active or name.startswith(active + '.') for active in self._active))
         if residue:
             raise RuntimeError(f'Unfinished publication transaction residue in {self.path}: '
                                f'{", ".join(residue)}. Inspect and recover these entries explicitly; '

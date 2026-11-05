@@ -72,6 +72,13 @@ class PosixWorkspace:
     identity: FileIdentity
     owned: list[Ownership] = field(default_factory=list)
 
+    @property
+    def recovery_path(self) -> Path:
+        return self.root.path / self.name
+
+    def prepare(self, originals: tuple[Ownership, ...], staged: tuple[str, ...]) -> None:
+        pass  # The POSIX directory descriptor is pinned at backend acquisition.
+
     def _create(self, name: str) -> int:
         fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _required_flag('O_NOFOLLOW'), 0o600, dir_fd=self.fd)
         self.owned.append(Ownership(name, _identity(os.fstat(fd))))

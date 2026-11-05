@@ -20,6 +20,14 @@ class TestRunPublication(unittest.TestCase):
         self.source = _make_two_pianos_one_bass_midi(self.root / 'source.mid')
         self.config = {'groove': {'spec': {}}, 'render': {'sample_rate': 8000}}
 
+    def symlink_or_skip(self, link, target, *, directory=False):
+        try:
+            link.symlink_to(target, target_is_directory=directory)
+        except OSError as exc:
+            if getattr(exc, 'winerror', None) == 1314:
+                self.skipTest('Native symlink privilege unavailable; file/hardlink collisions and native junction tests remain')
+            raise
+
     def run_audio(self, out='out'):
         from aimusic.audio.orchestrator import Orchestrator
         return Orchestrator(self.config, self.root / 'cache').run(self.source, output_dir=self.root / out)
@@ -40,7 +48,7 @@ class TestRunPublication(unittest.TestCase):
                     if kind == 'file':
                         target.write_bytes(b'KEEP')
                     elif kind == 'symlink':
-                        target.symlink_to(outside)
+                        self.symlink_or_skip(target, outside)
                     else:
                         target.hardlink_to(self.source)
                     with self.assertRaises(FileExistsError):
@@ -52,7 +60,7 @@ class TestRunPublication(unittest.TestCase):
     def test_output_symlink_is_rejected_before_upstream_writes(self):
         outside = self.root / 'outside'
         outside.mkdir()
-        (self.root / 'out').symlink_to(outside, target_is_directory=True)
+        self.symlink_or_skip(self.root / 'out', outside, directory=True)
         with self.assertRaises(ValueError):
             self.run_audio()
         self.assertEqual(list(outside.iterdir()), [])
@@ -91,20 +99,27 @@ class TestRunPublication(unittest.TestCase):
         import os
         self.run_audio('cold')
         out = self.root / 'out'
-        real_link = os.link
+        if os.name == 'nt':
+            from aimusic.audio.windows_native import WindowsAPI
+            operation, real_link = 'aimusic.audio.windows_native.WindowsAPI.rename', WindowsAPI.rename
+        else:
+            operation, real_link = 'os.link', os.link
         collided = False
 
-        def linking(src, dst, **kwargs):
+        def linking(*args, **kwargs):
             nonlocal collided
-            if Path(dst).name == 'rough_mix.wav' and kwargs.get('dst_dir_fd') is not None:
+            if Path(args[-1]).name == 'rough_mix.wav' and (os.name == 'nt' or kwargs.get('dst_dir_fd') is not None):
                 # Only race publication into the user tree, not private staging.
                 if (out / 'source.analysis.json').exists():
                     collided = True
-                    (out / 'stems' / 'rough_mix.wav').symlink_to(self.source)
-            return real_link(src, dst, **kwargs)
+                    if os.name == 'nt':
+                        (out / 'stems' / 'rough_mix.wav').write_bytes(b'OTHER WRITER')
+                    else:
+                        (out / 'stems' / 'rough_mix.wav').symlink_to(self.source)
+            return real_link(*args, **kwargs)
 
         original = self.source.read_bytes()
-        with patch('os.link', side_effect=linking), self.assertRaises(FileExistsError):
+        with patch(operation, new=linking), self.assertRaises(FileExistsError):
             self.run_audio()
         self.assertTrue(collided)
         self.assertEqual(self.source.read_bytes(), original)
@@ -121,7 +136,7 @@ class TestRunPublication(unittest.TestCase):
             with self.subTest(name=name):
                 out = self.root / name
                 out.mkdir()
-                (out / name).symlink_to(self.source)
+                (out / name).hardlink_to(self.source)  # Mandatory source-identity collision without symlink privileges.
                 original = self.source.read_bytes()
                 with self.assertRaises(FileExistsError):
                     Orchestrator({'stages': {'render': False, 'expressivization': False}}, self.root / 'cache').run(

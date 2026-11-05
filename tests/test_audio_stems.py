@@ -499,7 +499,12 @@ class TestStemNamespace(unittest.TestCase):
                         link = outside if kind == 'outside_link' else out / 'keep'
                         if kind == 'inside_link':
                             link.write_bytes(b'KEEP')
-                        target.symlink_to(link)
+                        try:
+                            target.symlink_to(link)
+                        except OSError as exc:
+                            if getattr(exc, 'winerror', None) == 1314:
+                                self.skipTest('Native symlink privilege unavailable; file/directory and mocked reparse cases remain required')
+                            raise
                     before = sorted(out.iterdir())
                     with self.assertRaisesRegex((ValueError, FileExistsError), 'exist|symlink|contain'):
                         render_role_stems(path, output_dir=out)
@@ -518,8 +523,13 @@ class TestStemNamespace(unittest.TestCase):
             outside = tmp / 'outside'
             outside.mkdir()
             out = tmp / 'stems'
-            out.symlink_to(outside, target_is_directory=True)
-            with self.assertRaisesRegex(ValueError, 'symlink'):
+            try:
+                out.symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                if getattr(exc, 'winerror', None) == 1314:
+                    self.skipTest('Native symlink privilege unavailable; native junction and mocked reparse cases remain required')
+                raise
+            with self.assertRaisesRegex(ValueError, 'symlink|reparse'):
                 render_role_stems(path, output_dir=out)
             self.assertEqual(list(outside.iterdir()), [])
 
@@ -628,7 +638,13 @@ class TestStemNamespace(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'render failed'):
                     render_role_stems(source, output_dir=out)
             self.assertEqual(list(out.iterdir()), [])
-            real_link = os.link
+            if os.name == 'nt':
+                from aimusic.audio.windows_native import WindowsAPI
+                real_link = WindowsAPI.rename
+                mutation = 'aimusic.audio.windows_native.WindowsAPI.rename'
+            else:
+                real_link = os.link
+                mutation = 'os.link'
             calls = 0
 
             def fail_second_link(*args, **kwargs):
@@ -638,7 +654,7 @@ class TestStemNamespace(unittest.TestCase):
                     raise OSError('publication failed')
                 return real_link(*args, **kwargs)
 
-            with patch('aimusic.audio.render.stem_publication.os.link', side_effect=fail_second_link):
+            with patch(mutation, new=fail_second_link):
                 with self.assertRaisesRegex(OSError, 'publication failed'):
                     render_role_stems(source, output_dir=out)
             self.assertEqual(list(out.iterdir()), [])
