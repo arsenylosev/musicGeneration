@@ -51,7 +51,7 @@ class PosixBackend:
         except FileNotFoundError:
             return None
 
-    def transaction(self, staging: Path, journal: Journal) -> ContextManager[None]:
+    def transaction(self, staging: Path, journal: Journal) -> ContextManager[tuple[Ownership, ...]]:
         return transaction(self, staging, journal)
 
     @contextmanager

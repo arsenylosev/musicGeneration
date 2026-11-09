@@ -1,7 +1,7 @@
 # Review bundle graph and objective admission (schema 1)
 
-The model/admission, assignment and page-rendering layers are implemented.
-Whole-bundle publication and findings collection remain later work; this is not
+The model/admission, assignment, page-rendering and sealed-archive layers are
+implemented. Findings collection remains later work; this is not
 evidence of a new human review. The historical four-demo tool and
 its [recorded acceptance](audio-listening-review.md) remain separate.
 
@@ -49,7 +49,7 @@ render WAV digest + sample trim bounds + gain + output WAV digest
   It returns the exact digest-linked node after create-only publication and a
   source recheck; failure rolls back only owned output. Repeatability is within
   the same numeric/libsndfile runtime. Merely declaring a `PresentationNode` still
-  does not certify samples. Whole-bundle publication remains a subsequent task.
+  does not certify samples. Sealed-archive assembly below verifies the complete delivery.
 - Schema 1 fixes panel sizes: canonical 4, roles 4, parity 2, timing 2, tuning 2.
   Exactly 14 unique exposures are required. The tuning pair must have one measured
   valid result and one failed tuning result with a passed negative-control gate.
@@ -73,13 +73,13 @@ backslashes, empty components, percent escapes, Windows device names, controls,
 trailing dots/spaces and alternate streams are rejected. Readers reject
 nonregular files and link/reparse components, including ancestors, and bound each
 file to 32 MiB. Candidate audio is bounded to 120 seconds. Cumulative exposure/media
-budgets and create-only complete-tree publication are enforced by the subsequent
+budgets and create-only single-file publication are enforced by the sealed-archive
 assembler, not promised by these read-only models.
 
 Use trusted local roots. These readers check identities, bounded reads and final
 hashes; they do **not** claim retained-handle protection against hostile concurrent
 ancestor replacement. The shared [publication contract](audio-publication-safety.md)
-is still the authority for writing any future bundle.
+is the authority for writing archives and extracting local views.
 
 ### Strict render provenance (same native manifest shape)
 
@@ -205,7 +205,7 @@ seed or whole graph to reviewers. Pseudonyms must be nonempty ASCII letters,
 digits, `_` or `-`, at most 64 characters; do not supply real identities. Audible
 content and equal-media digests can still allow inference. This layer does not
 claim to prevent that, certify unverified presentation samples, or publish a
-complete distributable review directory (task 6.5).
+sealed distributable archive (task 6.5).
 
 ## Offline reviewer pages (task 6.4)
 
@@ -215,8 +215,8 @@ relative filenames to UTF-8 bytes: `index.html`, `canonical.html`, `roles.html`,
 `parity.html`, `timing.html`, and `tuning.html`. It accepts only a strict
 `ReviewAssignment`, produced through the admitted public projection, and checks
 its trusted metadata digest again. It does not read the graph, map or media, write
-files, publish a bundle, or establish new admission/acceptance. The later assembler
-must verify media and publish the complete reviewer-only tree. Never serve the
+files, publish a bundle, or establish new admission/acceptance. The archive assembler
+verifies media and publishes a sealed reviewer-only ZIP. Never serve the
 private provenance tree alongside these pages.
 
 All media links are `media/s<hex>.wav`; page filenames contain no reviewer identity.
@@ -243,6 +243,356 @@ and links, CSP/style hashes, privacy, and an extracted synthetic bundle served o
 loopback (all pages, decodable WAV bytes, downloads, and a missing-media 404).
 These asset-free tests require neither Chrome nor a renderer; they do not claim
 real-browser playback, screen-reader, or human-listening evidence.
+
+## Installed-wheel generation and preparation (task 6.6)
+
+Provision Python 3.11+ and the wheel's `[audio-render]` extra before generation
+(`[audio]` suffices for preparation). Native generation additionally requires the
+approved local FluidSynth library/binding and a license-approved SoundFont; follow
+[audio-fluidsynth.md](audio-fluidsynth.md) or the pinned Windows setup. Installation
+and asset approval are separate steps, never automatic discovery or fallback.
+Supply a retained **12-EDO RenderPackage directory** and the exact SoundFont file.
+Do not use the schema-only JSON example as candidate evidence.
+
+The following sequence runs from an installed wheel, without a checkout.
+`-X utf8` explicitly enables UTF-8 for redirected Unicode-path output. It makes
+seven admitted renders / 14 exposures, records the freshly generated matrix's
+SHA-256 in a separate create-only private ledger, then prepares and assembles it.
+Hashing is justified **only because you just generated it under continuous trusted
+custody**. For a received matrix, use an independently approved matrix digest
+instead; hashing received bytes does not establish trust.
+
+`review_archive prepare` requires explicit `--input-root`, `--matrix`,
+`--expected-matrix-sha256` and `--reviewer`. The matrix must be directly inside the
+fresh private matrix root. It verifies bounded canonical matrix bytes, allocates
+opaque IDs/secret ordering entropy, and calls `write_presentation` with frame zero
+to the full clip end and gain **1.0**, without resampling, normalization or trimming.
+It retains the source/render bytes and verifies the complete graph before creating
+`private/blind-map.json`, `bundle.json` and `assignments/a<digest>.json`.
+`prepared.json` is the final canonical result, identical to successful stdout:
+`schema`, `operation: "prepare"`, `input_root`, `matrix`, `matrix_sha256`,
+`blind_map`, `blind_map_sha256`, `bundle`, `bundle_sha256`, `assignment`, and
+`assignment_sha256`. Paths are absolute; records have no BOM or trailing newline.
+Only `prepare` lazily loads audio/matrix modules; archive help/assembly/verification/
+extraction do not load renderers, numpy or soundfile. Preparation opens no SoundFont.
+
+All outputs are **create-only**. `prepare-started.json` reserves the one-shot run;
+it is not completion. On any failure stop: no success stdout is emitted. Preserve
+residue for inspection, regenerate the matrix in a **fresh private root**, and
+never resume, repair, overwrite or infer completeness from partial metadata/media.
+The set is not crash-atomic. These commands require the same private local custody
+and absence of concurrent namespace or payload mutation as archive operations
+below; `mkdir`/post-checks do not make hostile storage safe. Use private temporary
+storage and separate existing delivery/ledger parents. Never serve the private root.
+Pseudonyms are bounded ASCII identifiers, not real reviewer identities.
+
+### POSIX organizer: matrix → prepare → assemble
+
+<!-- archive-posix-generate -->
+```sh
+set -eu
+umask 077
+PYTHON='/absolute/venv/bin/python'
+PACKAGE='/absolute/retained/run_hash'
+SOUNDFONT='/absolute/approved/instrument.sf2'
+INPUT_ROOT='/absolute/private-inputs'
+MATRIX='/absolute/private-inputs/matrix.json'
+MATRIX_RECORD='/absolute/trusted-ledger/matrix.sha256'
+ARCHIVE='/absolute/delivery/review-r01.zip'
+DIGEST_RECORD='/absolute/trusted-ledger/review-r01.sha256'
+REVIEWER='r01'
+"$PYTHON" -X utf8 -m aimusic.audio.review_matrix --package "$PACKAGE" --soundfont "$SOUNDFONT" --out "$INPUT_ROOT"
+MATRIX_SHA256=$("$PYTHON" -X utf8 -c "import hashlib,sys; from pathlib import Path; print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())" "$MATRIX")
+"$PYTHON" -X utf8 -c "import os,sys; from pathlib import Path; f=Path(sys.argv[1]).open('xb'); f.write(sys.argv[2].encode('ascii')+bytes([10])); f.flush(); os.fsync(f.fileno()); f.close()" "$MATRIX_RECORD" "$MATRIX_SHA256"
+PREPARED=$("$PYTHON" -X utf8 -m aimusic.audio.review_archive prepare --input-root "$INPUT_ROOT" --matrix "$MATRIX" --expected-matrix-sha256 "$MATRIX_SHA256" --reviewer "$REVIEWER")
+BUNDLE=$("$PYTHON" -X utf8 -c "import json,sys; print(json.loads(sys.argv[1])['bundle'])" "$PREPARED")
+BUNDLE_SHA256=$("$PYTHON" -X utf8 -c "import json,sys; print(json.loads(sys.argv[1])['bundle_sha256'])" "$PREPARED")
+ASSIGNMENT=$("$PYTHON" -X utf8 -c "import json,sys; print(json.loads(sys.argv[1])['assignment'])" "$PREPARED")
+ASSIGNMENT_SHA256=$("$PYTHON" -X utf8 -c "import json,sys; print(json.loads(sys.argv[1])['assignment_sha256'])" "$PREPARED")
+RESULT=$("$PYTHON" -X utf8 -m aimusic.audio.review_archive assemble --input-root "$INPUT_ROOT" --bundle "$BUNDLE" --assignment "$ASSIGNMENT" --expected-bundle-sha256 "$BUNDLE_SHA256" --expected-assignment-sha256 "$ASSIGNMENT_SHA256" --out "$ARCHIVE")
+ARCHIVE_SHA256=$("$PYTHON" -X utf8 -c "import json,sys; print(json.loads(sys.argv[1])['archive_sha256'])" "$RESULT")
+"$PYTHON" -X utf8 -m aimusic.audio.review_archive verify --archive "$ARCHIVE" --expected-sha256 "$ARCHIVE_SHA256"
+"$PYTHON" -X utf8 -c "import os,sys; from pathlib import Path; f=Path(sys.argv[1]).open('xb'); f.write(sys.argv[2].encode('ascii')+bytes([10])); f.flush(); os.fsync(f.fileno()); f.close()" "$DIGEST_RECORD" "$ARCHIVE_SHA256"
+printf '\nIndependent-channel SHA-256: %s\n' "$ARCHIVE_SHA256"
+```
+
+### PowerShell organizer: matrix → prepare → assemble
+
+Use existing private local NTFS parents with appropriate ACLs. Every native exit
+code is checked explicitly; `$ErrorActionPreference` alone is insufficient.
+These blocks avoid version-specific PowerShell syntax, but that is not evidence
+of execution on both PowerShell 5.1 and 7. Record the actual shell/version tested.
+
+<!-- archive-powershell-generate -->
+```powershell
+$ErrorActionPreference = 'Stop'
+$Python = 'C:\Review Tools\venv\Scripts\python.exe'
+$Package = 'C:\Review Retained\run_hash'
+$SoundFont = 'C:\Review Approved\instrument.sf2'
+$InputRoot = 'C:\Review Private\inputs'
+$Matrix = 'C:\Review Private\inputs\matrix.json'
+$MatrixRecord = 'C:\Review Trust\matrix.sha256'
+$Archive = 'C:\Review Delivery\review-r01.zip'
+$DigestRecord = 'C:\Review Trust\review-r01.sha256'
+$Reviewer = 'r01'
+& $Python -X utf8 -m aimusic.audio.review_matrix --package $Package --soundfont $SoundFont --out $InputRoot
+if ($LASTEXITCODE -ne 0) { throw 'Matrix generation failed; preserve residue and use a fresh private root.' }
+$MatrixSHA256 = & $Python -X utf8 -c "import hashlib,sys; from pathlib import Path; print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())" $Matrix
+if ($LASTEXITCODE -ne 0) { throw 'Matrix digest failed; stop.' }
+& $Python -X utf8 -c "import os,sys; from pathlib import Path; f=Path(sys.argv[1]).open('xb'); f.write(sys.argv[2].encode('ascii')+bytes([10])); f.flush(); os.fsync(f.fileno()); f.close()" $MatrixRecord $MatrixSHA256
+if ($LASTEXITCODE -ne 0) { throw 'Private matrix digest recording failed; stop.' }
+$Prepared = & $Python -X utf8 -m aimusic.audio.review_archive prepare --input-root $InputRoot --matrix $Matrix --expected-matrix-sha256 $MatrixSHA256 --reviewer $Reviewer
+if ($LASTEXITCODE -ne 0) { throw 'Preparation failed; preserve residue and use a fresh private root.' }
+$Preparation = $Prepared | ConvertFrom-Json
+$Bundle = $Preparation.bundle
+$BundleSHA256 = $Preparation.bundle_sha256
+$Assignment = $Preparation.assignment
+$AssignmentSHA256 = $Preparation.assignment_sha256
+$Result = & $Python -X utf8 -m aimusic.audio.review_archive assemble --input-root $InputRoot --bundle $Bundle --assignment $Assignment --expected-bundle-sha256 $BundleSHA256 --expected-assignment-sha256 $AssignmentSHA256 --out $Archive
+if ($LASTEXITCODE -ne 0) { throw 'Archive assembly failed; stop.' }
+$ArchiveSHA256 = ($Result | ConvertFrom-Json).archive_sha256
+& $Python -X utf8 -m aimusic.audio.review_archive verify --archive $Archive --expected-sha256 $ArchiveSHA256
+if ($LASTEXITCODE -ne 0) { throw 'Archive verification failed; stop.' }
+& $Python -X utf8 -c "import os,sys; from pathlib import Path; f=Path(sys.argv[1]).open('xb'); f.write(sys.argv[2].encode('ascii')+bytes([10])); f.flush(); os.fsync(f.fileno()); f.close()" $DigestRecord $ArchiveSHA256
+if ($LASTEXITCODE -ne 0) { throw 'Independent digest recording failed; stop.' }
+Write-Output "Independent-channel SHA-256: $ArchiveSHA256"
+```
+
+Send only the sealed ZIP, convey the archive digest through an authenticated
+independent channel, and use the reviewer extraction/serving sequence below.
+Keep the matrix ledger, preparation result and blind map private. No successful
+command constitutes human approval or fresh native-render evidence by itself.
+
+## Sealed-archive commands (task 6.6)
+
+This separate **archive-only offline lane** uses already prepared/admitted records.
+Retain `bundle` and `assignment` paths/digests from successful preparation above
+(or independently approved canonical API outputs), and every bundle reference
+under one private input root. It does not render candidates or invent approval.
+JSON must be canonical UTF-8/ASCII-escaped bytes, with no BOM or trailing newline.
+The schema-only example in this document is not an assembly input. Candidate
+rendering (`review_matrix`) is a separate prerequisite, not an archive operation.
+
+Use Python 3.11+ with the product wheel already installed. No checkout, test
+helpers, `[audio]` extra, renderer, SoundFont, credentials, or network is needed
+for the four archive commands. Installation is a separate provisioning step;
+when using a pre-provisioned wheelhouse it can also be offline:
+`python -m pip install --no-index --find-links "/absolute/wheelhouse" "/absolute/wheelhouse/aimusic-0.1.0-py3-none-any.whl"`
+(PowerShell: use quoted Windows paths). Normal product dependencies must already
+be installed or present in that wheelhouse. Do not run `pip` during verification.
+
+The CLI is `python -m aimusic.audio.review_archive` with explicit subcommands:
+
+| Command | Required arguments | Effect |
+|---|---|---|
+| `assemble` | `--input-root`, `--bundle`, `--assignment`, `--expected-bundle-sha256`, `--expected-assignment-sha256`, `--out` | Verify inputs, create one new sealed ZIP. |
+| `verify` | `--archive`, `--expected-sha256` | Read-only strict whole-archive verification. |
+| `extract` | `--archive`, `--expected-sha256`, `--out` | Verify first, then create a new disposable view. |
+| `verify-extracted` | `--archive`, `--expected-sha256`, `--directory` | Call `verify_extracted`; check current view immediately before serving. |
+
+There are no inferred paths/digests, response files, abbreviated options, serving
+or browser subcommands. Record reads reject links/reparse points and nonregular
+files before parsing, cap the bundle at 32 MiB and assignment at 64 KiB, check the
+trusted byte digest, then require strict canonical schema round trips. Archive
+budgets and threat-model limits are in [publication safety](audio-publication-safety.md#sealed-reviewer-archives-task-65).
+
+Each successful command writes exactly one canonical JSON object to stdout,
+without a newline: `archive_sha256`, `operation`, and
+`schema: "aimusic.review-archive-result/1"`. Operational failures exit 1, write a
+canonical object with `error` instead of `archive_sha256` to stderr, and emit no
+success stdout. Usage errors exit 2 with argparse diagnostics. Treat **any**
+nonzero exit as failure; do not continue to extraction or serving. Output may
+contain private diagnostic paths; keep organizer logs private.
+
+### Custody and trust prerequisites
+
+- Choose existing, access-controlled local parent directories. No symlink/reparse
+  ancestors, network shares, shared hostile locations, or concurrent namespace
+  **or payload mutation** during assembly, extraction, verification or serving.
+  Windows publication requires writable fixed local NTFS. On macOS use physical
+  paths (`/private/...`, not the `/var` or `/tmp` aliases). No path is auto-resolved
+  to bypass link checks. Keep temporary storage private too.
+- Keep the input root, delivery directory, digest ledger, and reviewer view
+  separate. The archive output cannot be inside the input root. Output archive,
+  digest-record file and extraction directory must be **new names**. Parent
+  directories must already exist; these commands do not provision permissions.
+- **Organizer:** retain the archive unchanged and record its successful assembly
+  digest in a separate trusted ledger. Send that digest through an authenticated
+  independent channel (for example an independently authenticated message or
+  in-person confirmation), separate from the archive download. A hash is not a
+  signature; transport of an untrusted hash alongside an untrusted ZIP adds no
+  authenticity. Never put the trusted digest inside the ZIP.
+- **Reviewer:** enter the digest confirmed through that independent channel, not
+  one computed from the received ZIP, read from its manifest/`complete.json`, or
+  copied from an unauthenticated neighboring checksum file. Retain the received
+  archive and the independent trust record separately for later verification.
+- Keep the **whole provenance graph**, `private/blind-map.json`, `order_seed`,
+  source/render evidence and reviewer identity-to-pseudonym mapping in organizer
+  custody. Never send them with the archive or put them below a served directory.
+  Limit access/backups to authorized organizers; unblind only when authorized
+  after findings are finalized. Retain the map to reproduce assignment order.
+  Audible content and equal-media digests can still reveal similarities.
+- A marker is not proof of integrity. An interrupted extraction or uncertain
+  custody requires stopping the server, preserving the old view for inspection,
+  verifying the retained sealed archive, and extracting under a **fresh name** in
+  trusted storage. Never resume, repair, overwrite, or automatically delete a
+  partial view or publication residue. Re-run `verify-extracted` before every
+  serving session; a pass is neither a snapshot nor a serving-time lock.
+
+Replace every `/absolute/...` or `C:\Review ...` example path and uppercase digest
+placeholder below with your explicit local value. Do not use the example tokens
+as digests; the CLI rejects them. The Python executable must be from the installed
+wheel environment. Keep each shell's variables in the same terminal session.
+
+### POSIX organizer: assemble, verify and record independently
+
+<!-- archive-posix-assemble -->
+```sh
+set -eu
+umask 077
+PYTHON='/absolute/venv/bin/python'
+INPUT_ROOT='/absolute/private-inputs'
+BUNDLE='/absolute/private-inputs/bundle.json'
+ASSIGNMENT='/absolute/private-inputs/reviewer.json'
+BUNDLE_SHA256='REPLACE_WITH_APPROVED_BUNDLE_SHA256'
+ASSIGNMENT_SHA256='REPLACE_WITH_APPROVED_ASSIGNMENT_SHA256'
+ARCHIVE='/absolute/delivery/review-r01.zip'
+DIGEST_RECORD='/absolute/trusted-ledger/review-r01.sha256'
+RESULT=$("$PYTHON" -m aimusic.audio.review_archive assemble --input-root "$INPUT_ROOT" --bundle "$BUNDLE" --assignment "$ASSIGNMENT" --expected-bundle-sha256 "$BUNDLE_SHA256" --expected-assignment-sha256 "$ASSIGNMENT_SHA256" --out "$ARCHIVE")
+ARCHIVE_SHA256=$("$PYTHON" -c "import json,sys; print(json.loads(sys.argv[1])['archive_sha256'])" "$RESULT")
+"$PYTHON" -m aimusic.audio.review_archive verify --archive "$ARCHIVE" --expected-sha256 "$ARCHIVE_SHA256"
+"$PYTHON" -c "import os,sys; from pathlib import Path; from aimusic.audio.review_bundle import FileRef; d=sys.argv[2]; FileRef('digest',d,0); f=Path(sys.argv[1]).open('xb'); f.write(d.encode('ascii')+bytes([10])); f.flush(); os.fsync(f.fileno()); f.close()" "$DIGEST_RECORD" "$ARCHIVE_SHA256"
+printf '\nIndependent-channel SHA-256: %s\n' "$ARCHIVE_SHA256"
+```
+
+The ledger file is ASCII: 64 lowercase hex characters plus LF, created
+exclusively and flushed. Do not store it in the reviewer view or repackage the
+ZIP to include it. Transfer the ZIP through the chosen delivery channel; convey
+and authenticate the displayed digest separately. No command here transfers data.
+
+### POSIX reviewer: independent trust, strict extraction, then local serving
+
+<!-- archive-posix-extract -->
+```sh
+set -eu
+umask 077
+PYTHON='/absolute/venv/bin/python'
+ARCHIVE='/absolute/received/review-r01.zip'
+VIEW='/absolute/reviewer-views/review-r01-new'
+DIGEST_RECORD='/absolute/trusted-ledger/received-r01.sha256'
+TRUSTED_SHA256='REPLACE_WITH_INDEPENDENTLY_CONFIRMED_ARCHIVE_SHA256'
+"$PYTHON" -c "import os,sys; from pathlib import Path; from aimusic.audio.review_bundle import FileRef; d=sys.argv[2]; FileRef('digest',d,0); f=Path(sys.argv[1]).open('xb'); f.write(d.encode('ascii')+bytes([10])); f.flush(); os.fsync(f.fileno()); f.close()" "$DIGEST_RECORD" "$TRUSTED_SHA256"
+"$PYTHON" -m aimusic.audio.review_archive verify --archive "$ARCHIVE" --expected-sha256 "$TRUSTED_SHA256"
+"$PYTHON" -m aimusic.audio.review_archive extract --archive "$ARCHIVE" --expected-sha256 "$TRUSTED_SHA256" --out "$VIEW"
+```
+
+Keep custody; in that same terminal verify the **current** view, immediately
+followed by the separate standard-library HTTP server. Serve only `VIEW`, never
+its parent, the input root, digest ledger or archive directory:
+
+<!-- archive-posix-serve -->
+```sh
+"$PYTHON" -m aimusic.audio.review_archive verify-extracted --archive "$ARCHIVE" --expected-sha256 "$TRUSTED_SHA256" --directory "$VIEW" &&
+"$PYTHON" -m http.server 8000 --bind 127.0.0.1 --directory "$VIEW"
+```
+
+After the server reports that it is listening, open a **second terminal**:
+
+<!-- archive-posix-open -->
+```sh
+PYTHON='/absolute/venv/bin/python'
+"$PYTHON" -m webbrowser -t 'http://127.0.0.1:8000/index.html'
+```
+
+### PowerShell organizer: assemble, verify and record independently
+
+Native exit codes are checked explicitly (record the shell/version actually tested): `$ErrorActionPreference` alone does not stop failed Python commands.
+Use existing private NTFS parents with appropriate ACLs; POSIX `umask` is not a
+Windows access-control mechanism.
+
+<!-- archive-powershell-assemble -->
+```powershell
+$ErrorActionPreference = 'Stop'
+$Python = 'C:\Review Tools\venv\Scripts\python.exe'
+$InputRoot = 'C:\Review Private\inputs'
+$Bundle = 'C:\Review Private\inputs\bundle.json'
+$Assignment = 'C:\Review Private\inputs\reviewer.json'
+$BundleSHA256 = 'REPLACE_WITH_APPROVED_BUNDLE_SHA256'
+$AssignmentSHA256 = 'REPLACE_WITH_APPROVED_ASSIGNMENT_SHA256'
+$Archive = 'C:\Review Delivery\review-r01.zip'
+$DigestRecord = 'C:\Review Trust\review-r01.sha256'
+$Result = & $Python -m aimusic.audio.review_archive assemble --input-root $InputRoot --bundle $Bundle --assignment $Assignment --expected-bundle-sha256 $BundleSHA256 --expected-assignment-sha256 $AssignmentSHA256 --out $Archive
+if ($LASTEXITCODE -ne 0) { throw 'Archive assembly failed; stop.' }
+$ArchiveSHA256 = ($Result | ConvertFrom-Json).archive_sha256
+& $Python -m aimusic.audio.review_archive verify --archive $Archive --expected-sha256 $ArchiveSHA256
+if ($LASTEXITCODE -ne 0) { throw 'Archive verification failed; stop.' }
+& $Python -c "import os,sys; from pathlib import Path; from aimusic.audio.review_bundle import FileRef; d=sys.argv[2]; FileRef('digest',d,0); f=Path(sys.argv[1]).open('xb'); f.write(d.encode('ascii')+bytes([10])); f.flush(); os.fsync(f.fileno()); f.close()" $DigestRecord $ArchiveSHA256
+if ($LASTEXITCODE -ne 0) { throw 'Independent digest recording failed; stop.' }
+Write-Output "Independent-channel SHA-256: $ArchiveSHA256"
+```
+
+Send only the ZIP through the delivery channel; independently convey and
+authenticate the displayed digest. Keep the ledger and private inputs separate.
+
+### PowerShell reviewer: independent trust, strict extraction, then local serving
+
+<!-- archive-powershell-extract -->
+```powershell
+$ErrorActionPreference = 'Stop'
+$Python = 'C:\Review Tools\venv\Scripts\python.exe'
+$Archive = 'C:\Review Received\review-r01.zip'
+$View = 'C:\Review Views\review-r01-new'
+$DigestRecord = 'C:\Review Trust\received-r01.sha256'
+$TrustedSHA256 = 'REPLACE_WITH_INDEPENDENTLY_CONFIRMED_ARCHIVE_SHA256'
+& $Python -c "import os,sys; from pathlib import Path; from aimusic.audio.review_bundle import FileRef; d=sys.argv[2]; FileRef('digest',d,0); f=Path(sys.argv[1]).open('xb'); f.write(d.encode('ascii')+bytes([10])); f.flush(); os.fsync(f.fileno()); f.close()" $DigestRecord $TrustedSHA256
+if ($LASTEXITCODE -ne 0) { throw 'Independent digest recording failed; stop.' }
+& $Python -m aimusic.audio.review_archive verify --archive $Archive --expected-sha256 $TrustedSHA256
+if ($LASTEXITCODE -ne 0) { throw 'Archive verification failed; stop.' }
+& $Python -m aimusic.audio.review_archive extract --archive $Archive --expected-sha256 $TrustedSHA256 --out $View
+if ($LASTEXITCODE -ne 0) { throw 'Extraction failed; preserve it and choose a fresh name.' }
+```
+
+In the same terminal, under continuous custody, verify immediately before the
+separate standard-library server:
+
+<!-- archive-powershell-serve -->
+```powershell
+& $Python -m aimusic.audio.review_archive verify-extracted --archive $Archive --expected-sha256 $TrustedSHA256 --directory $View
+if ($LASTEXITCODE -ne 0) { throw 'View verification failed; do not serve.' }
+& $Python -m http.server 8000 --bind 127.0.0.1 --directory $View
+if ($LASTEXITCODE -ne 0) { throw 'Local server failed.' }
+```
+
+After the server reports that it is listening, open a **second PowerShell window**:
+
+<!-- archive-powershell-open -->
+```powershell
+Start-Process 'http://127.0.0.1:8000/index.html'
+```
+
+### Reviewer session and exposure limit
+
+The HTTP server/browser are **separate, explicitly local** operations, not part of
+assembly, verification or extraction. Bind only to `127.0.0.1`; no internet
+service, credentials or remote assets are needed. Use the exact loopback URL
+above, not a public interface or `file://` as a verification shortcut. Stop the
+server with Ctrl-C at the end. If the port is occupied, stop and investigate;
+do not assume an existing server is serving your verified view.
+
+Schema 1 has **exactly 14 exposures per reviewer, each assigned once**: four
+canonical mixes, four role stems, and three A/B pairs (parity, timing, tuning).
+Follow the assigned page and A/B order. Do not add alternate files, another
+assignment or calibration examples; expanding the set requires a new schema
+revision. Clips are individually at most 120 seconds; 14 exposures is a workload
+cap, not a claim of safe listening duration. Start at low volume, pause/take breaks
+or stop if uncomfortable. Controls never autoplay. If playback fails, try the
+opaque WAV download; if that fails, mark it **not reviewed**, stop and request a
+verified replacement or fresh extraction. Never substitute another clip.
+
+Pages do not save judgments. Findings/authorized reporting are later tasks; a
+successful command, completion marker or playback is not a human finding or
+acceptance. This is a rough-mix workflow, not mastering, polyphonic-f0 proof, or
+new CLAP/FAD/LUFS evidence. Historical four-demo approval does not transfer.
 
 ## Candidate selection and admission
 
@@ -385,7 +735,7 @@ assert bundle.to_bytes() == ReviewBundle.from_bytes(bundle.to_bytes()).to_bytes(
 Focused verification (activated environment, no native asset required):
 
 ```text
-python -m pytest tests/test_audio_review_bundle.py tests/test_audio_review_admission.py tests/test_audio_review_presentation.py tests/test_audio_review_blinding.py tests/test_audio_tuning_check.py -q
+python -m pytest tests/test_audio_review_bundle.py tests/test_audio_review_admission.py tests/test_audio_review_presentation.py tests/test_audio_review_blinding.py tests/test_audio_tuning_check.py tests/test_audio_review_archive.py tests/test_audio_review_archive_security.py tests/test_audio_review_archive_cli.py tests/test_audio_review_prepare.py tests/test_audio_review_archive_docs.py -q
 flake8 aimusic tests ui.py
 mypy aimusic tests ui.py
 ```
@@ -396,3 +746,19 @@ public refusal, package reconciliation, meaningful groove replay, altered routin
 and sidecar settings, explicit unmeasured states, and positive/negative/missing/
 wrong-target tuning. The synthetic native adapter test is **simulation only**; it
 is not fresh native Windows FluidSynth or human-listening evidence.
+
+The CLI tests cover required arguments/digests, canonical JSON output, malformed,
+oversized, link/reparse and nonregular records, changed archives/views, and
+create-only refusal. The runbook test builds and installs a wheel in an external
+Unicode/space path, with no product or audio dependencies, then executes the
+archive-only commands with network/asset/renderer access forbidden. A separate
+installed-wheel lane uses provisioned audio dependencies and a synthetic renderer
+to execute matrix → prepare → assemble; no real FluidSynth is required. Child
+Python explicitly enables UTF-8 after inherited encoding overrides are removed.
+The Windows runner supplies the wheel, docs and fixture helpers outside the
+checkout and selects these tests without broader skips. It separately smoke-tests
+verify-then-loopback serving. POSIX blocks run on POSIX; PowerShell blocks run
+when that shell is available, otherwise only their exact Python argument lists
+and inline recording scripts are executed. The latter is not native PowerShell
+or Windows/NTFS evidence. Browser launch commands are checked, not automatically
+opened; no new browser-playback or human-listening evidence is claimed here.

@@ -9,7 +9,7 @@ The audible-demo branch cannot publish groove bundles or rendered stems reliably
 - Add native Windows-safe publication for exclusive stem artifacts, demo sources, cache restoration, and transactional groove bundles while preserving containment, collision refusal, rollback, and recovery guarantees.
 - Audit adjacent Windows path boundaries for reparse points, no-follow behavior, portable names, case-insensitive collisions, Unicode/long paths, and unsupported filesystems; fail closed rather than silently weakening publication.
 - Add native Windows asset-free CI and an opt-in pinned FluidSynth verification lane distinct from API simulation and symlink-privilege-dependent tests.
-- Add a bounded review-bundle workflow that generates admitted audio stimuli, objective-gate evidence, immutable provenance, blinded comparison assignments, reviewer templates, and digest-linked human findings.
+- Add a bounded review-bundle workflow that generates admitted audio stimuli, objective-gate evidence, immutable provenance, blinded comparison assignments, reviewer templates, and digest-linked human findings, delivered as one deterministic sealed archive with strict verification before extraction.
 - Expand the listening set beyond the historical four mixes with role stems, generated-package/import parity, meaningful timing comparisons, a valid-versus-flattened tuning control, and an explicitly limited polyphonic 19-EDO example.
 - Preserve rough-demo limits: no mastering claim, no inherited human approval, no fabricated CLAP/FAD/LUFS/rhythm/note/polyphonic-f0 result, and no committed SoundFont or generated WAV assets.
 - Use focused Conventional Commit checkpoints during implementation and retain the fork-first, separately authorized PR boundary.
@@ -19,7 +19,7 @@ The audible-demo branch cannot publish groove bundles or rendered stems reliably
 ### New Capabilities
 
 - `audio-output-publication`: Cross-platform publication of complete audio artifacts with platform-appropriate containment, collision, rollback, recovery, and verification behavior.
-- `audio-human-review`: Reproducible generation, admission, blinding, packaging, and reporting of broad human-listening evidence linked to exact audio and provenance.
+- `audio-human-review`: Reproducible generation, admission, blinding, sealed-archive delivery, and reporting of broad human-listening evidence linked to exact audio and provenance.
 
 ### Modified Capabilities
 

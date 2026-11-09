@@ -52,6 +52,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $Repo $Name) -Destination $Source
     }
     Copy-Item -LiteralPath (Join-Path $Repo 'tests') -Destination $Checks -Recurse
+    Copy-Item -LiteralPath (Join-Path $Repo 'docs') -Destination $Checks -Recurse
     $Venv = Join-Path $Root 'venv'
     Invoke-Checked $Python @('-m', 'venv', $Venv)
     $InstalledPython = Join-Path $Venv 'Scripts/python.exe'
@@ -59,6 +60,8 @@ try {
     Invoke-Checked $InstalledPython @('-m', 'pip', 'wheel', '--no-deps', '--no-build-isolation', '--no-index', '--wheel-dir', $Wheels, $Source)
     $Built = @(Get-ChildItem -LiteralPath $Wheels -Filter 'aimusic-*.whl')
     if ($Built.Count -ne 1) { throw 'Expected exactly one built aimusic wheel' }
+    New-Item -ItemType Directory -Path (Join-Path $Checks 'wheels') | Out-Null
+    Copy-Item -LiteralPath $Built[0].FullName -Destination (Join-Path $Checks 'wheels')
     $Extra = if ($Renderer) { 'audio-render,dev' } else { 'audio,dev' }
     $Requirements = @('-m', 'pip', 'install', ($Built[0].FullName + '[' + $Extra + ']'))
     if ($Renderer) { $Requirements += 'soundfile==0.14.0' }

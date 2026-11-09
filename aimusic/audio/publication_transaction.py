@@ -41,7 +41,7 @@ def _check_casefold(root: TransactionBackend, name: str) -> None:
 
 
 @contextmanager
-def transaction(root: TransactionBackend, staging: Path, journal: Journal) -> Iterator[None]:
+def transaction(root: TransactionBackend, staging: Path, journal: Journal) -> Iterator[tuple[Ownership, ...]]:
     """Shared journal/rollback policy; POSIX owns only descriptor operations.
 
     Replacement intentionally retains the old groove no-follow rename semantics.
@@ -83,7 +83,7 @@ def transaction(root: TransactionBackend, staging: Path, journal: Journal) -> It
                 _check_casefold(root, owner.name)
             journal = evolve(journal, phase=Phase.PUBLISHED)
             work.journal(canonical(journal))
-            yield
+            yield journal.published  # All names exist; caller rejection still rolls back.
             work.discard_staged()
             root.verify()
             for owner in journal.published:

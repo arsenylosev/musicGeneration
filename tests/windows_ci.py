@@ -19,6 +19,27 @@ ASSET_VARIABLES = ('AIMUSIC_RUN_FLUIDSYNTH_TESTS', 'AIMUSIC_FLUIDSYNTH_MANIFEST'
 
 PREFIX = 'tests.test_audio_windows_native.TestNativeWindowsPublication.'
 
+# The external checks directory contains the entire tests package, including the
+# archive -> blinding -> bundle fixture helpers. Do not package them in the wheel.
+# Select portable classes explicitly: POSIX descriptor/swap tests are not Windows
+# requirements, and must not require broadening the allowed-skip policy.
+ARCHIVE_SUITES = (
+    'tests.test_audio_review_archive',
+    'tests.test_audio_review_archive_cli',
+    'tests.test_audio_review_prepare',
+    'tests.test_audio_review_archive_docs',
+    'tests.test_audio_review_archive_security.TestVerifiedExtraction',
+    'tests.test_audio_review_archive_security.TestBackendCopyIntegrity',
+    'tests.test_audio_review_archive_security.TestWindowsPublicReadback',
+)
+
+
+def load_required_suite() -> unittest.TestSuite:
+    return unittest.defaultTestLoader.loadTestsFromNames([
+        'tests.test_architecture', 'tests.test_render_package', 'tests.test_audio_windows_native',
+        *ARCHIVE_SUITES,
+    ])
+
 
 def allowed_skip(test_id: str, reason: str) -> bool:
     kind = OPTIONAL_CASES.get(test_id.removeprefix(PREFIX)) if test_id.startswith(PREFIX) else None
@@ -61,9 +82,7 @@ def main() -> int:
     from tests.import_all import import_all_executable_modules
     print(f'Imported {len(import_all_executable_modules(include_ui=False))} wheel modules (UI is not packaged)')
     assert 'fluidsynth' not in sys.modules
-    suite = unittest.defaultTestLoader.loadTestsFromNames([
-        'tests.test_architecture', 'tests.test_render_package', 'tests.test_audio_windows_native',
-    ])
+    suite = load_required_suite()
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     rejected = [(test.id(), reason) for test, reason in result.skipped if not allowed_skip(test.id(), reason)]
     report = {'native_windows': True, 'token': token, 'asset_environment_clean': True, 'tests_run': result.testsRun,

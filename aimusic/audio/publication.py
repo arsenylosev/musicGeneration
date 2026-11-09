@@ -31,7 +31,7 @@ class PublicationBackend(Protocol):
     def verify(self) -> None: ...
     def entries(self) -> list[str]: ...
     def info(self, name: str) -> os.stat_result | None: ...
-    def transaction(self, staging: Path, journal: Journal) -> ContextManager[None]: ...
+    def transaction(self, staging: Path, journal: Journal) -> ContextManager[tuple[Ownership, ...]]: ...
 
 
 def _unsupported(output: Path | str, exc: BaseException) -> RuntimeError:
@@ -125,7 +125,8 @@ class PinnedOutput:
 
     @contextmanager
     def publication(self, staging: Path, names: list[str], *, replace: bool = False,
-                    sources: tuple[Path, ...] = ()) -> Iterator[None]:
+                    sources: tuple[Path, ...] = ()) -> Iterator[tuple[Ownership, ...]]:
+        """Yield recorded published ownership for caller verification before commit."""
         plan = validate_names(names)
         originals = self._check(plan, replace=replace, sources=tuple(Path(p) for p in sources))
         # Validate the *whole* staged plan before creating any transaction entry.
@@ -137,8 +138,8 @@ class PinnedOutput:
         journal = Journal(invocation, plan, replace, originals=originals)
         self._active.add(invocation)
         try:
-            with self.backend.transaction(staging, journal):
-                yield
+            with self.backend.transaction(staging, journal) as published:
+                yield published
         except NotImplementedError as exc:
             raise _unsupported(self.path, exc) from exc
         finally:

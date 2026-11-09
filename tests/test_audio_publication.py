@@ -270,6 +270,54 @@ class TestAudioPublicationContract(unittest.TestCase):
             self.assertIn(contents, observed[name])
             self.assertEqual((self.staging / name).read_bytes(), contents)
 
+    def test_transaction_yields_recorded_published_ownership_before_commit(self):
+        self._assert_published_ownership(direct=True)
+
+    def test_publication_yields_recorded_published_ownership_before_commit(self):
+        self._assert_published_ownership(direct=False)
+
+    def _assert_published_ownership(self, *, direct):
+        from aimusic.audio.publication_records import FileIdentity, Journal, Ownership
+        from aimusic.audio.publication_transaction import transaction
+        if os.name == 'nt':
+            from aimusic.audio.publication_windows import WindowsWorkspace as Workspace
+        else:
+            from aimusic.audio.publication_posix import PosixWorkspace as Workspace
+        stage, write_journal = Workspace.stage, Workspace.journal
+        staged, records = [], []
+        # Deliberately not lexical order: preserve the caller's plan order.
+        names = list(reversed(self.payloads))
+
+        def record_stage(work, source, name):
+            identity = stage(work, source, name)
+            staged.append(Ownership(source.name, identity))
+            return identity
+
+        def record_journal(work, data):
+            write_journal(work, data)
+            records.append(json.loads(data))
+
+        (self.output / 'keep.txt').write_bytes(b'UNRELATED')
+        with patch.object(Workspace, 'stage', record_stage), patch.object(Workspace, 'journal', record_journal):
+            with self.publication.pin_output(self.output) as root:
+                context = (transaction(root.backend, self.staging, Journal('.stems-contract', tuple(names), False))
+                           if direct else root.publication(self.staging, names))
+                with self.assertRaisesRegex(RuntimeError, 'reject before commit'):
+                    with context as published:
+                        self.assertIsInstance(published, tuple)
+                        self.assertEqual(published, tuple(staged))
+                        self.assertEqual([owner.name for owner in published], names)
+                        self.assertEqual(records[-1]['phase'], 'published')
+                        self.assertEqual(records[-1]['published'], records[-1]['staged'])
+                        self.assertNotIn('committed', [record['phase'] for record in records])
+                        for owner, recorded in zip(published, staged):
+                            self.assertIs(owner.identity, recorded.identity)
+                            self.assertEqual(FileIdentity.from_stat(root.backend.info(owner.name)), owner.identity)
+                            self.assertEqual(_read_public(self.output / owner.name), self.payloads[owner.name])
+                        raise RuntimeError('reject before commit')
+        self.assertEqual(_snapshot(self.output), {'keep.txt': ('file', b'UNRELATED')})
+        self.assertNotIn('committed', [record['phase'] for record in records])
+
     def test_replacement_exposes_only_old_or_complete_new_bytes(self):
         old = {name: b'PREVIOUS ' + name.encode() for name in self.payloads}
         for name, contents in old.items():

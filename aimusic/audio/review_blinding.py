@@ -11,13 +11,15 @@ import hmac
 from pathlib import Path
 import re
 import secrets
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from aimusic.audio.review_bundle import (
     AssignmentReference, FileRef, GraphRecord, PANEL_SIZES, Panel, PresentationNode,
     PrivateBlindMap, ReviewBundle, Stimulus, canonical_bytes,
 )
-from aimusic.audio.review_matrix import ReviewMatrix
+# Matrix generation loads renderers; assignments and archive readers do not.
+if TYPE_CHECKING:
+    from aimusic.audio.review_matrix import ReviewMatrix
 
 
 def create_blind_map(matrix: ReviewMatrix, *, random_bytes: Callable[[int], bytes] = secrets.token_bytes) -> PrivateBlindMap:

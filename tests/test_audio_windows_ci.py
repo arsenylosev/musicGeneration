@@ -79,6 +79,39 @@ class TestWindowsCIContract(unittest.TestCase):
         with patch.object(module, 'exercise'):
             self.assertTrue(module.probe('junction', Path('unused')).available)
 
+    def test_required_runner_includes_portable_archive_contracts_without_posix_skips(self):
+        from tests import windows_ci
+
+        def cases(suite):
+            for item in suite:
+                if isinstance(item, unittest.TestSuite):
+                    yield from cases(item)
+                else:
+                    yield item
+
+        required = list(cases(windows_ci.load_required_suite()))
+        ids = {test.id() for test in required}
+        loader = unittest.TestLoader()
+        expected = list(cases(loader.loadTestsFromNames([
+            'tests.test_audio_review_archive',
+            'tests.test_audio_review_archive_cli',
+            'tests.test_audio_review_prepare',
+            'tests.test_audio_review_archive_docs',
+            'tests.test_audio_review_archive_security.TestVerifiedExtraction',
+            'tests.test_audio_review_archive_security.TestBackendCopyIntegrity',
+            'tests.test_audio_review_archive_security.TestWindowsPublicReadback',
+        ])))
+        self.assertFalse(loader.errors)
+        self.assertTrue(expected)
+        self.assertTrue({test.id() for test in expected} <= ids)
+        self.assertEqual(len(ids), len(required))
+        self.assertFalse(any('_FailedTest' in name or 'TestPosix' in name or
+                             'TestUnsupportedConcurrentMutation' in name for name in ids))
+        for test in expected:
+            self.assertFalse(getattr(type(test), '__unittest_skip__', False))
+            self.assertFalse(getattr(getattr(test, test._testMethodName), '__unittest_skip__', False))
+            self.assertFalse(windows_ci.allowed_skip(test.id(), 'missing capability'))
+
     def test_installed_runner_rejects_broad_skips(self):
         module = importlib.import_module('tests.windows_ci')
         self.assertFalse(module.allowed_skip('tests.test_architecture.TestArchitectureGuardrails.test_audio_only_imports_core_and_theory_from_aimusic', 'missing'))
@@ -137,6 +170,8 @@ class TestWindowsEvidenceRuntime(unittest.TestCase):
         self.assertIn("'audio-render,dev' } else { 'audio,dev'", script)
         self.assertIn("'-m', 'venv'", script)
         self.assertIn("'tests.windows_ci'", script)
+        self.assertIn("'docs'", script)
+        self.assertIn("Join-Path $Checks 'wheels'", script)
         self.assertIn('[char]0x00e9', script)
         self.assertIn("'aimusic wheel caf'", script)
         self.assertNotIn("'--editable'", script)
