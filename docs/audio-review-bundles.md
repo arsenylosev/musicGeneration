@@ -39,9 +39,16 @@ render WAV digest + sample trim bounds + gain + output WAV digest
 - `PresentationNode` links its source WAV to render evidence. The output uses an
   opaque `media/s<hex>.wav` path; it cannot overwrite the source path. Only explicit
   half-open sample trim bounds and finite positive gain (maximum 16) are modeled.
-  Performing/checking the transform, stripping ancillary metadata, and whole-bundle
-  publication belong to the subsequent generation layer; this layer does not
-  certify transformed samples merely because a transform was declared.
+  `review_presentation.write_presentation` creates these copies from an admitted
+  render and a verified source `FileRef` in an existing private tree. It preserves
+  rate, channels and WAV subtype, applies gain in float64, and retains only
+  fmt/fact/data chunks (no timestamp-bearing PEAK chunk). Source files are never
+  rewritten. Source and output are capped at 32 MiB, 120 seconds and peak .95;
+  output caps may be tightened. Both pre-encoding and quantized peaks must pass.
+  It returns the exact digest-linked node after create-only publication and a
+  source recheck; failure rolls back only owned output. Repeatability is within
+  the same numeric/libsndfile runtime. Merely declaring a `PresentationNode` still
+  does not certify samples. Whole-bundle publication remains a subsequent task.
 - Schema 1 fixes panel sizes: canonical 4, roles 4, parity 2, timing 2, tuning 2.
   Exactly 14 unique exposures are required. The tuning pair must have one measured
   valid result and one failed tuning result with a passed negative-control gate.
@@ -280,7 +287,7 @@ assert bundle.to_bytes() == ReviewBundle.from_bytes(bundle.to_bytes()).to_bytes(
 Focused verification (activated environment, no native asset required):
 
 ```text
-python -m pytest tests/test_audio_review_bundle.py tests/test_audio_review_admission.py tests/test_audio_tuning_check.py -q
+python -m pytest tests/test_audio_review_bundle.py tests/test_audio_review_admission.py tests/test_audio_review_presentation.py tests/test_audio_tuning_check.py -q
 flake8 aimusic tests ui.py
 mypy aimusic tests ui.py
 ```
