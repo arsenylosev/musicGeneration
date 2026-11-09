@@ -1,8 +1,8 @@
 # Review bundle graph and objective admission (schema 1)
 
 The model/admission, assignment, page-rendering and sealed-archive layers are
-implemented. Findings collection remains later work; this is not
-evidence of a new human review. The historical four-demo tool and
+implemented. External [finding collection and authorized reporting](audio-review-findings.md)
+are available; this is not evidence of a new human review. The historical four-demo tool and
 its [recorded acceptance](audio-listening-review.md) remain separate.
 
 ## Immutable graph and custody

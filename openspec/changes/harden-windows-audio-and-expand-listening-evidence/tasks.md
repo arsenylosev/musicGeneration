@@ -55,11 +55,11 @@
 
 ## 7. Structured findings and scoped reporting
 
-- [ ] 7.1 Add failing tests for reviewer pseudonyms, bundle/assignment/stimulus digest links, single and pair judgments, perceived difference, defects, preference, confidence, notes, completion state, duplicate responses, changed media, and unknown stimuli.
-- [ ] 7.2 Implement append-only finding templates and validation that keeps incomplete responses out of acceptance totals without mutating the bundle; verify valid disagreements remain separate and invalid/tampered findings fail closed.
-- [ ] 7.3 Implement authorized unblinding and report generation that combines machine gates with counts and individual linked human findings while preserving assignments, disagreements, negative-control disclosure, `unmeasured` metrics, and rough-demo limits; verify snapshots contain no inherited approval or unanimous claim when findings disagree.
-- [ ] 7.4 Document reviewer instructions, low-volume safety, defect vocabulary, completion/withdrawal handling, privacy limits for pseudonyms, unblinding procedure, and explicit prohibition on fabricated findings; verify a fresh template validates as incomplete and a completed fixture validates as complete.
-- [ ] 7.5 Run finding/report tests, lint, and typecheck, then commit this group as `feat(audio): record provenance-linked listening findings` and verify test fixtures contain no real reviewer identity.
+- [x] 7.1 Add failing tests for reviewer pseudonyms, bundle/assignment/stimulus digest links, single and pair judgments, perceived difference, defects, preference, confidence, notes, completion state, duplicate responses, changed media, and unknown stimuli.
+- [x] 7.2 Implement append-only finding templates and validation that keeps incomplete responses out of acceptance totals without mutating the bundle; verify valid disagreements remain separate and invalid/tampered findings fail closed.
+- [x] 7.3 Implement authorized unblinding and report generation that combines machine gates with counts and individual linked human findings while preserving assignments, disagreements, negative-control disclosure, `unmeasured` metrics, and rough-demo limits; verify snapshots contain no inherited approval or unanimous claim when findings disagree.
+- [x] 7.4 Document reviewer instructions, low-volume safety, defect vocabulary, completion/withdrawal handling, privacy limits for pseudonyms, unblinding procedure, and explicit prohibition on fabricated findings; verify a fresh template validates as incomplete and a completed fixture validates as complete.
+- [x] 7.5 Run finding/report tests, lint, and typecheck, then commit this group as `feat(audio): record provenance-linked listening findings` and verify test fixtures contain no real reviewer identity.
 
 ## 8. Fresh native evidence and human review
 

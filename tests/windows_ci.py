@@ -33,11 +33,18 @@ ARCHIVE_SUITES = (
     'tests.test_audio_review_archive_security.TestWindowsPublicReadback',
 )
 
+FINDING_SUITES = (
+    'tests.test_audio_review_findings',
+    'tests.test_audio_review_findings_cli',
+    'tests.test_audio_review_findings_docs',
+    'tests.test_audio_review_report',
+)
+
 
 def load_required_suite() -> unittest.TestSuite:
     return unittest.defaultTestLoader.loadTestsFromNames([
         'tests.test_architecture', 'tests.test_render_package', 'tests.test_audio_windows_native',
-        *ARCHIVE_SUITES,
+        *ARCHIVE_SUITES, *FINDING_SUITES,
     ])
 
 
