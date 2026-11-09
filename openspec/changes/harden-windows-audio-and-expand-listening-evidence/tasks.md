@@ -35,13 +35,13 @@
 
 ## 5. Review-bundle model and objective admission
 
-- [ ] 5.1 Add failing schema/validation tests for immutable source-render-presentation provenance nodes, SHA-256 links, effective config/backend/runtime/asset identity, four-state metrics, panel definitions, blind-map separation, assignment references, and external findings; verify malformed, missing, non-finite, and path-escaping records are rejected.
-- [ ] 5.2 Implement canonical review-bundle models and digest calculation with schema revisioning and safe relative paths; verify serialization is byte-stable and any referenced-file or metadata tamper changes identity or fails verification.
-- [ ] 5.3 Implement candidate readers that verify existing render manifests/reports and common admission gates for source identity, expected backend/asset, finite aligned audio, bounded peak, expected signal, event/routing evidence, and package reconciliation; verify rejected candidates cannot appear in public pages.
-- [ ] 5.4 Implement controlled 19-EDO admission using complete declared windows and the configured per-tone/aggregate 15-cent P95 floor, plus a deliberately flattened control measured against unchanged 19-EDO targets that must fail that floor; verify synthetic positive, missing-window, wrong-target, and expected-negative tests.
-- [ ] 5.5 Require `passed`, `failed`, `unmeasured`, or `not_applicable` records for CLAP, FAD, LUFS, rhythm F-score, note F1, polyphonic f0, and every applicable existing gate; verify omissions and inferred human-to-machine results are invalid.
-- [ ] 5.6 Document the manifest graph, objective-admission policy, rough-mix claim limits, tuning-control interpretation, and historical-hash non-transfer rule; verify examples pass the same schema validator.
-- [ ] 5.7 Run focused schema/admission tests, lint, and typecheck, then commit this group as `feat(audio): add review bundle admission` and verify the checkpoint contains no generated media.
+- [x] 5.1 Add failing schema/validation tests for immutable source-render-presentation provenance nodes, SHA-256 links, effective config/backend/runtime/asset identity, four-state metrics, panel definitions, blind-map separation, assignment references, and external findings; verify malformed, missing, non-finite, and path-escaping records are rejected.
+- [x] 5.2 Implement canonical review-bundle models and digest calculation with schema revisioning and safe relative paths; verify serialization is byte-stable and any referenced-file or metadata tamper changes identity or fails verification.
+- [x] 5.3 Implement candidate readers that verify existing render manifests/reports and common admission gates for source identity, expected backend/asset, finite aligned audio, bounded peak, expected signal, event/routing evidence, and package reconciliation; verify rejected candidates cannot appear in public pages.
+- [x] 5.4 Implement controlled 19-EDO admission using complete declared windows and the configured per-tone/aggregate 15-cent P95 floor, plus a deliberately flattened control measured against unchanged 19-EDO targets that must fail that floor; verify synthetic positive, missing-window, wrong-target, and expected-negative tests.
+- [x] 5.5 Require `passed`, `failed`, `unmeasured`, or `not_applicable` records for CLAP, FAD, LUFS, rhythm F-score, note F1, polyphonic f0, and every applicable existing gate; verify omissions and inferred human-to-machine results are invalid.
+- [x] 5.6 Document the manifest graph, objective-admission policy, rough-mix claim limits, tuning-control interpretation, and historical-hash non-transfer rule; verify examples pass the same schema validator.
+- [x] 5.7 Run focused schema/admission tests, lint, and typecheck, then commit this group as `feat(audio): add review bundle admission` and verify the checkpoint contains no generated media.
 
 ## 6. Fixed 14-exposure generation and blinded presentation
 
