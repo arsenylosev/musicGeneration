@@ -1,7 +1,8 @@
-﻿# Review bundle graph and objective admission (schema 1)
+# Review bundle graph and objective admission (schema 1)
 
-This is the group-5 model/admission layer, not the later page generator, findings
-collector, or evidence of a new human review. The historical four-demo tool and
+The model/admission, assignment and page-rendering layers are implemented.
+Whole-bundle publication and findings collection remain later work; this is not
+evidence of a new human review. The historical four-demo tool and
 its [recorded acceptance](audio-listening-review.md) remain separate.
 
 ## Immutable graph and custody
@@ -204,7 +205,44 @@ seed or whole graph to reviewers. Pseudonyms must be nonempty ASCII letters,
 digits, `_` or `-`, at most 64 characters; do not supply real identities. Audible
 content and equal-media digests can still allow inference. This layer does not
 claim to prevent that, certify unverified presentation samples, or publish a
-complete distributable review directory (tasks 6.4–6.5).
+complete distributable review directory (task 6.5).
+
+## Offline reviewer pages (task 6.4)
+
+`aimusic.audio.review_pages.render_review_pages(assignment,
+expected_sha256=approved_assignment_digest)` returns a dictionary of six fixed
+relative filenames to UTF-8 bytes: `index.html`, `canonical.html`, `roles.html`,
+`parity.html`, `timing.html`, and `tuning.html`. It accepts only a strict
+`ReviewAssignment`, produced through the admitted public projection, and checks
+its trusted metadata digest again. It does not read the graph, map or media, write
+files, publish a bundle, or establish new admission/acceptance. The later assembler
+must verify media and publish the complete reviewer-only tree. Never serve the
+private provenance tree alongside these pages.
+
+All media links are `media/s<hex>.wav`; page filenames contain no reviewer identity.
+Only opaque clip/media IDs, purpose labels and bundle/assignment hashes are shown.
+The pseudonym is deliberately not echoed: even a valid pseudonym could disclose a
+condition. Pair playback order comes only from the assignment, not sorted inventory.
+
+Pages use no scripts, dependencies or remote assets. Their early meta CSP forbids
+scripts, connections, objects, base URLs and forms; it allows only same-origin
+media and the exact hash of the inline stylesheet. A CSP meta tag cannot enforce
+`frame-ancestors`; these pages are intended for trusted local serving, not an
+internet-hosted application. The index explains loopback-only serving from the
+extracted reviewer directory with Python's standard HTTP server.
+
+Players have labelled native controls, no autoplay or preload, visible keyboard
+focus, a skip link, panel navigation, and low-volume guidance. Recovery instructions
+and opaque WAV downloads remain visible outside every audio element, even with
+missing/unsupported media and scripting disabled. A failed download means re-extract
+or request a verified copy and mark the clip **not reviewed**, never substitute
+another file. Static pages cannot diagnose file integrity or save findings.
+
+`tests/test_audio_review_pages.py` checks HTML structure, keyboard-accessible names
+and links, CSP/style hashes, privacy, and an extracted synthetic bundle served on
+loopback (all pages, decodable WAV bytes, downloads, and a missing-media 404).
+These asset-free tests require neither Chrome nor a renderer; they do not claim
+real-browser playback, screen-reader, or human-listening evidence.
 
 ## Candidate selection and admission
 

@@ -20,3 +20,12 @@
 - ML job targets: 2 passed, 7 dependency/capability skips.
 
 These are local equivalent runs, not hosted GitHub run identifiers. No organization PR or workflow dispatch was performed.
+
+## Asset-free reviewer-page browser smoke
+
+- Runtime: OpenCode 2.2.5, Electron 44.9.1, Chromium 152.0.7977.167 on macOS.
+- Served an extracted reviewer-only synthetic tree on loopback; no `private/` tree was exposed.
+- All six pages loaded under their generated CSP with no console errors. Lighthouse reported accessibility 1.0 and best-practices 1.0.
+- A same-origin WAV reached `readyState=4`, emitted `loadedmetadata`, `canplay`, and `playing`, and advanced playback time. Focusing the native audio control and pressing Space started playback with the visible focus outline applied.
+- Removing one WAV produced the expected HTTP 404 and media error while the visible recovery text continued to instruct the reviewer to mark the clip not reviewed and avoid substitution.
+- This smoke run proves browser mechanics for synthetic media only. It is not native FluidSynth evidence or human listening acceptance.
