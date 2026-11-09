@@ -33,7 +33,7 @@ R = TypeVar('R', bound='Record')
 
 def _plain(value: Any) -> Any:
     if isinstance(value, Record):
-        return {f.name: _plain(getattr(value, f.name)) for f in fields(value)}
+        return value.to_dict()
     if isinstance(value, Mapping):
         if any(not isinstance(k, str) for k in value):
             raise ValueError('JSON object keys must be strings')
@@ -161,7 +161,8 @@ class Record:
         pass
 
     def to_dict(self) -> dict[str, Any]:
-        return _plain(self)
+        """Canonical wire shape, shared by standalone, nested and digest serialization."""
+        return {f.name: _plain(getattr(self, f.name)) for f in fields(self)}
 
     def to_bytes(self) -> bytes:
         return canonical_bytes(self)
@@ -447,19 +448,43 @@ class ReviewBundle(GraphRecord):
             render.require_admitted()
         self.verify(root, expected_sha256=expected_sha256)
         presentations = {p.sha256: p for p in self.presentations}
-        return {'bundle_sha256': self.sha256, 'panels': [p.to_dict() for p in self.panels],
+        # Never expose private pair orientation or global condition-index order.
+        panels = [Panel(p.purpose, tuple(sorted(p.stimuli)) if len(p.stimuli) == 2 else p.stimuli)
+                  for p in self.panels]
+        return {'bundle_sha256': self.sha256, 'panels': [p.to_dict() for p in panels],
                 'stimuli': [{'id': s.id, 'media': presentations[s.presentation_sha256].output.to_dict()}
-                            for s in self.stimuli]}
+                            for s in sorted(self.stimuli, key=lambda s: s.id)]}
 
 
 @dataclass(frozen=True)
 class PrivateBlindMap(GraphRecord):
     conditions: tuple[tuple[str, str], ...]
+    order_seed: str | None = None  # Private entropy; legacy maps cannot generate assignments.
 
     def validate(self) -> None:
+        if self.order_seed is not None:
+            _sha(self.order_seed)
         _unique((s for s, _ in self.conditions), 'blind stimulus')
         for _, condition in self.conditions:
             _text(condition)
+
+    def to_dict(self) -> dict[str, Any]:
+        # The optional extension must not change canonical legacy bytes/digests.
+        result = super().to_dict()
+        if self.order_seed is None:
+            del result['order_seed']
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Any) -> PrivateBlindMap:
+        # Two wire shapes: legacy conditions-only, or conditions plus a SHA seed.
+        # Null is not a third representation of the legacy map.
+        if isinstance(data, dict):
+            if 'order_seed' in data and data['order_seed'] is None:
+                raise ValueError('private order seed must be omitted or a SHA-256 digest')
+            if set(data) == {'conditions'}:
+                data = {**data, 'order_seed': None}
+        return super().from_dict(data)
 
     def validate_bundle(self, bundle: ReviewBundle) -> None:
         if {s for s, _ in self.conditions} != {s.id for s in bundle.stimuli}:

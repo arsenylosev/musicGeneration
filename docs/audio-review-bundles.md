@@ -52,7 +52,7 @@ render WAV digest + sample trim bounds + gain + output WAV digest
 - Schema 1 fixes panel sizes: canonical 4, roles 4, parity 2, timing 2, tuning 2.
   Exactly 14 unique exposures are required. The tuning pair must have one measured
   valid result and one failed tuning result with a passed negative-control gate.
-  Exact fixture selection and balanced A/B generation are subsequent tasks.
+  `ReviewMatrix` fixes the selected fixtures; assignment generation is described below.
 - The **whole provenance manifest is private**, not a page data source. Its
   `blind_map` references a separate file under `private/`; it never embeds that
   mapping. `PrivateBlindMap` must cover precisely the stimulus set and label the
@@ -62,7 +62,9 @@ render WAV digest + sample trim bounds + gain + output WAV digest
 - `public_projection(root=..., expected_sha256=...)` refuses rejected gates and
   verifies all referenced bytes and the private map before returning only bundle
   digest, purpose panels, opaque IDs and media references. The new generation
-  layer must use it, not directly serialize the private graph. It returns data,
+  layer must use it, not directly serialize the private graph. Public pair inventories
+  and the global stimulus inventory are sorted by opaque ID, never private condition
+  order. Only an assignment determines A/B playback order. It returns data,
   not HTML, and does not modify the historical four-demo page.
 
 Every path is a portable, nonempty relative path. Traversal, absolute paths, URLs,
@@ -145,6 +147,64 @@ Verify each external document with `document.read_verified(root)` before using i
 These are provenance references, not completed responses: append-only response
 schemas, required judgments, authorized unblinding and acceptance counts are later
 work. No field in this bundle grants human approval.
+
+## Opaque names and reviewer assignments (task 6.3)
+
+`aimusic.audio.review_blinding` adds read-only graph/assignment helpers, not pages
+or complete-directory publication:
+
+1. `create_blind_map(matrix)` allocates a separate `s<64 lowercase hex>` ID for
+   every exposure, including repeated audio, plus a private 256-bit `order_seed`.
+   Neither IDs nor filenames encode conditions, indices, source hashes or paths.
+   Entropy collisions retry at most 32 times per token, then fail closed. Retain
+   this map; fresh allocation intentionally creates a different bundle identity.
+   The injectable entropy callback is for synthetic tests, not production seeding.
+2. Pass `media/<ID>.wav` to `write_presentation` for each mapped exposure, with
+   explicit trim/gain parameters. `bind_presentations(matrix, blind, presentations)`
+   checks exact coverage and each render/source link, then returns the private
+   `ReviewBundle`. It does not write or verify files. The caller retains map bytes
+   at `private/blind-map.json` and the complete private provenance graph.
+3. `create_assignment(bundle, pseudonym, root=..., expected_sha256=...)` checks
+   admission and all bundle references through `public_projection`. It returns a
+   frozen, strict `ReviewAssignment` (`aimusic.review-assignment/1`). There are no
+   writes, network calls, asset discovery, HTML or human judgments.
+
+Each reviewer gets 14 exposures once, grouped by purpose. Canonical and role
+orders stay fixed. The three pair arrays are A then B. HMAC-SHA256 uses the private
+seed and a versioned message containing bundle identity, pseudonym and a ranking
+label. The ranked first one or two pairs are reversed, selected by another keyed
+bit. Thus forward/reverse counts differ by one **within each reviewer**; arbitrary
+reviewer sets are not guaranteed equal aggregate counts. No global RNG is used.
+Retaining the same bundle/map and pseudonym reproduces identical assignment bytes.
+The secret seed prevents reviewers from reconstructing condition order using the
+public bundle digest and pseudonym alone. It is never included in reviewer data.
+
+`assignment.reference(bundle)` returns the existing `AssignmentReference` contract,
+checking that this is the assignment's exact bundle. Its file is
+`<bundle.assignment_directory>/a<assignment SHA-256>.json`; the default directory
+is `assignments`, but nested declared directories are supported. The opaque leaf
+contains no pseudonym or condition. Choose neutral directory names for reviewer
+references. The directory and private bundle fields are not added to assignment
+documents. Its digest links cover all 14 media files. Only schema, bundle digest,
+pseudonym, purpose panels and opaque media references enter assignment bytes.
+`assignment.validate_bundle(bundle)` checks private graph links;
+`assignment.verify(reviewer_root, expected_sha256=trusted_assignment_digest)` checks
+identity and all media without needing any private files. Verify serialized
+assignment bytes with `reference.document.read_verified(root)` before parsing.
+Hashes detect tampering relative to trusted references; they are not signatures.
+
+Pre-assignment maps with only `conditions` preserve their canonical bytes and
+trusted digest on parsing, reserialization and nested serialization. Seedless maps
+omit `order_seed`; seeded maps add a SHA-256-shaped value. Explicit JSON null is
+rejected rather than introducing a third wire shape. All canonical helpers use
+the model's `to_dict` wire shape. Seedless maps cannot generate assignments.
+Adding a seed changes map bytes
+and bundle identity; it cannot inherit old approval. Never distribute the map,
+seed or whole graph to reviewers. Pseudonyms must be nonempty ASCII letters,
+digits, `_` or `-`, at most 64 characters; do not supply real identities. Audible
+content and equal-media digests can still allow inference. This layer does not
+claim to prevent that, certify unverified presentation samples, or publish a
+complete distributable review directory (tasks 6.4–6.5).
 
 ## Candidate selection and admission
 
@@ -287,7 +347,7 @@ assert bundle.to_bytes() == ReviewBundle.from_bytes(bundle.to_bytes()).to_bytes(
 Focused verification (activated environment, no native asset required):
 
 ```text
-python -m pytest tests/test_audio_review_bundle.py tests/test_audio_review_admission.py tests/test_audio_review_presentation.py tests/test_audio_tuning_check.py -q
+python -m pytest tests/test_audio_review_bundle.py tests/test_audio_review_admission.py tests/test_audio_review_presentation.py tests/test_audio_review_blinding.py tests/test_audio_tuning_check.py -q
 flake8 aimusic tests ui.py
 mypy aimusic tests ui.py
 ```
