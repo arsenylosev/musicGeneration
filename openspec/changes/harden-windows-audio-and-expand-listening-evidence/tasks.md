@@ -45,7 +45,7 @@
 
 ## 6. Fixed 14-exposure generation and blinded presentation
 
-- [ ] 6.1 Extend deterministic source/workflow tooling to generate the exact matrix of four canonical mixes, four fixture role stems, package/import parity pair, groove-on/off timing pair, and valid/flattened tuning pair; verify a manifest test counts exactly 14 exposures and includes the polyphonic 19-EDO boundary without claiming its f0 accuracy.
+- [x] 6.1 Extend deterministic source/workflow tooling to generate the exact matrix of four canonical mixes, four fixture role stems, package/import parity pair, groove-on/off timing pair, and valid/flattened tuning pair; verify a manifest test counts exactly 14 exposures and includes the polyphonic 19-EDO boundary without claiming its f0 accuracy.
 - [ ] 6.2 Implement bounded, deterministic trim/gain presentation transforms that preserve source files and record parameters plus source/output digests; verify transformed WAVs retain allowed containers, bounded peaks/bytes/duration, and no ancillary metadata.
 - [ ] 6.3 Implement opaque stimulus names, private condition mapping, and deterministic reviewer-specific balanced A/B order derived from bundle identity and reviewer pseudonym; verify public HTML/media/filenames reveal none of the condition labels, original paths, or blind-map fields.
 - [ ] 6.4 Generate purpose-grouped offline pages for canonical listening, stems, parity, timing, and tuning with accessible controls and no network dependency; verify browser smoke tests, CSP, missing-media behavior, keyboard access, and extracted-bundle playback.
