@@ -2,6 +2,11 @@
 
 ## Windows CI group
 
+- Fork PR #5 run `42789164898` (2026-11-10) passed Linux lint, typecheck,
+  core tests, and ML tests, but its hosted Windows job failed before test
+  execution at the standard-user `Start-Process` bootstrap with "The parameter
+  is incorrect." The gate is explicitly skipped pending task 8.0a; this run is
+  not native Windows acceptance evidence.
 - Equivalent clean native run ID: `bb4fb51962c64969bb20afaa5ac6a03e`.
 - Source revision before this checkpoint: `fb7c0a252648761560d54f9f1b044db91aa78ad4`.
 - Wheel SHA-256: `2686f1f0188290a96c8cee257e83431dce631268c5ef0182ed3623bbd2561d45`.

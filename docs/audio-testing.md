@@ -54,13 +54,19 @@ Hardening adds three distinct forms of Windows verification:
 | Lane | Required? | What it establishes |
 |---|---|---|
 | Host-independent ABI/policy simulation | Yes, existing Linux suite | ctypes widths, flags, failure handling, reparse/identity decisions; not real NTFS behavior |
-| `Windows audio (asset-free wheel)` in `ci.yml` | Yes, every main push/PR, no job opt-out | Actual Windows NTFS publication, collision, rollback, Unicode/long paths, simple preview and cold/warm cache; no real FluidSynth audio |
+| `Windows audio (asset-free wheel)` in `ci.yml` | Intended required gate; temporarily skipped | Actual Windows NTFS publication, collision, rollback, Unicode/long paths, simple preview and cold/warm cache; no real FluidSynth audio |
 | `windows-audio-evidence.yml` / `-Renderer` | Explicit opt-in only | Pinned Windows FluidSynth canonical workflows, controlled tuning, output digests and same-machine cold/repeat/warm results; no inherited listening approval |
 
 A repository owner must select **Windows audio (asset-free wheel)** as a required
-branch-protection check. YAML makes the job unconditional and fail-fast but cannot
+branch-protection check after its temporary deferral is removed. YAML cannot
 configure GitHub branch protection. No workflow dispatch or branch-rule change is
 performed by these scripts.
+
+> **Temporary deferral (2026-11-10):** fork PR #5 run `42789164898` failed in
+> the standard-user `Start-Process` bootstrap before any Windows tests executed.
+> The job remains defined but is explicitly skipped in `ci.yml`; this is not
+> Windows acceptance evidence. OpenSpec task 8.0a schedules repair and restoration
+> of the required gate in a later iteration.
 
 ### Required asset-free Windows job
 

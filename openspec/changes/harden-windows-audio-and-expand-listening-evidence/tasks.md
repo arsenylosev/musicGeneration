@@ -63,6 +63,8 @@
 
 ## 8. Fresh native evidence and human review
 
+- [ ] 8.0a Repair the hosted `windows-latest` standard-user `Start-Process` bootstrap failure from fork run `42789164898`, remove the explicit false job condition, and require the complete asset-free Windows job to pass before relying on native Windows evidence; do not replace it with elevated execution or broader skips.
+- [ ] 8.0b Resolve MUS-40 by preventing reviewer-visible canonical media from serving as a digest oracle for blinded pair members; add a regression test that attempts condition recovery from the complete reviewer-visible assignment/media inventory before distributing any assignments.
 - [ ] 8.1 On the approved native Windows renderer environment, execute the pinned canonical and 14-exposure workflows from an installed wheel in a Unicode/space path, including cold/warm cache and same-machine repeat runs; verify all required provenance, admission, output, and cache reports and their digests before sealed-archive publication.
 - [ ] 8.2 Run sealed-archive and extraction verification, deliberate archive/media/manifest tamper checks, offline browser checks, and Windows-versus-supported-platform semantic comparisons; verify semantic gates are reported without cross-platform PCM/WAV hash requirements.
 - [ ] 8.3 Distribute blinded assignments to the approved reviewer set and collect actual completed finding files without exposing the private map or fabricating responses; verify every included finding links to the exact bundle/assignment/media digests and preserve incomplete or disagreeing responses as specified.
